@@ -202,7 +202,7 @@ export class PuppeteerCountyScraper extends CountyScraper {
               '--ignore-certificate-errors-spki-list'
             ],
             timeout: 120000, // 2 minutes launch timeout
-            protocolTimeout: 300000, // 5 minutes protocol timeout for slow connections
+            protocolTimeout: 600000, // Increase to 10 minutes for very slow connections/deployments
             ignoreHTTPSErrors: true,
             defaultViewport: {
               width: 1920,

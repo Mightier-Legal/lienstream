@@ -249,10 +249,23 @@ export class SchedulerService {
           allScrapers.push(scraper);
           this.currentScrapers.push(scraper);
           
-          // Initialize the scraper
-          await scraper.initialize();
+          // Initialize the scraper with timeout
+          const SCRAPER_TIMEOUT = 10 * 60 * 1000; // 10 minutes timeout per county
+          
+          await Promise.race([
+            scraper.initialize(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Scraper initialization timeout')), 30000)
+            )
+          ]);
 
-          const scrapedLiens = await scraper.scrapeCountyLiens(fromDate, toDate);
+          // Scrape with timeout to prevent hanging
+          const scrapedLiens = await Promise.race([
+            scraper.scrapeCountyLiens(fromDate, toDate),
+            new Promise<ScrapedLien[]>((_, reject) => 
+              setTimeout(() => reject(new Error('Scraping timeout exceeded')), SCRAPER_TIMEOUT)
+            )
+          ]);
           
           if (scrapedLiens.length > 0) {
             totalLiensFound += scrapedLiens.length;
@@ -278,7 +291,36 @@ export class SchedulerService {
 
         } catch (error) {
           await Logger.error(`Failed to scrape ${county.name}: ${error}`, 'scheduler');
-          // Continue with other counties even if one fails
+          
+          // If there's a protocol timeout or critical browser error, stop automation
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (errorMessage.includes('ProtocolError') || 
+              errorMessage.includes('timed out') ||
+              errorMessage.includes('Browser is not open') ||
+              errorMessage.includes('crashed')) {
+            await Logger.error(`Critical browser error detected, stopping automation`, 'scheduler');
+            
+            // Update county run as failed
+            if (countyRunId) {
+              await storage.updateCountyRun(countyRunId, {
+                status: 'failed',
+                endTime: new Date(),
+                errorMessage: errorMessage
+              });
+            }
+            
+            // Mark automation as failed and break out of loop
+            throw new Error(`Critical error during scraping: ${errorMessage}`);
+          }
+          
+          // For non-critical errors, continue with other counties
+          if (countyRunId) {
+            await storage.updateCountyRun(countyRunId, {
+              status: 'failed',
+              endTime: new Date(),
+              errorMessage: errorMessage
+            });
+          }
         }
       }
 
