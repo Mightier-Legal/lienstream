@@ -6,7 +6,7 @@ import { pdfStorage } from './pdf-storage';
 interface AirtableRecord {
   fields: {
     'Status'?: string;
-    'County Name'?: string;
+    'County'?: string;
     'Document ID'?: string;
     'Scrape Batch ID'?: string;
     'Grantor/Grantee Names'?: string;
@@ -74,7 +74,7 @@ export class AirtableService {
         return {
           fields: {
             'Status': 'New',
-            'County Name': countyName,
+            'County': countyName,
             'Record Number': recordNumber, // Convert to number for Airtable number field
             'PDF Link': pdfAttachment // Now an attachment field
           }
