@@ -5,6 +5,18 @@ import { Logger } from './logger';
 import { createCountyScraper, PuppeteerCountyScraper } from './county-scraper';
 import { storage } from '../storage';
 
+// Type for scraped liens
+interface ScrapedLien {
+  recordingNumber: string;
+  recordingDate: Date;
+  documentUrl: string;
+  pdfBuffer?: Buffer;
+  grantor?: string;
+  grantee?: string;
+  address?: string;
+  amount?: number;
+}
+
 export class SchedulerService {
   private airtableService: AirtableService;
   private isRunning = false;
@@ -214,11 +226,13 @@ export class SchedulerService {
           break;
         }
         
+        let countyRunId: string | undefined;
+        
         try {
           await Logger.info(`Starting lien scraping for ${county.name}, ${county.state}`, 'scheduler');
           
           // Create county run record
-          const countyRunId = await storage.createCountyRun({
+          countyRunId = await storage.createCountyRun({
             countyId: county.id,
             automationRunId: runId,
             status: 'running',
