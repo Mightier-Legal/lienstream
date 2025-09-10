@@ -73,7 +73,6 @@ export class AirtableService {
         
         return {
           fields: {
-            'Status': 'New',
             'County': countyName,
             'Record Number': recordNumber, // Convert to number for Airtable number field
             'PDF Link': pdfAttachment // Now an attachment field
