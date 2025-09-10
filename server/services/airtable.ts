@@ -6,7 +6,7 @@ import { pdfStorage } from './pdf-storage';
 interface AirtableRecord {
   fields: {
     'Status'?: string;
-    'County'?: string;
+    'County'?: string | string[]; // Can be string or array for linked records
     'Document ID'?: string;
     'Scrape Batch ID'?: string;
     'Grantor/Grantee Names'?: string;
@@ -45,9 +45,8 @@ export class AirtableService {
         'http://localhost:5000';
       
       const records: AirtableRecord[] = liens.map((lien) => {
-        // Get county name from lien or default
-        const countyName = 'Maricopa County';
-        const stateName = 'Arizona';
+        // Maricopa County record ID in Airtable Counties table
+        const maricopaCountyRecordId = 'rechJ69LKZxLLuQBJ';
         
         // If we have a PDF buffer, store it and get the serving URL
         let pdfAttachment;
@@ -73,6 +72,7 @@ export class AirtableService {
         
         return {
           fields: {
+            'County': [maricopaCountyRecordId], // Linked record field - array of record IDs
             'Record Number': recordNumber, // Convert to number for Airtable number field
             'PDF Link': pdfAttachment // Now an attachment field
           }
