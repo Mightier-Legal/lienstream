@@ -21,6 +21,8 @@ export class ScraperService {
     try {
       this.browser = await puppeteer.launch({
         headless: true,
+        protocolTimeout: 180000, // Increase protocol timeout to 3 minutes
+        timeout: 60000, // Browser launch timeout of 60 seconds
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
