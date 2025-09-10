@@ -398,6 +398,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Test Airtable sync with County field
+  app.post("/api/test-airtable-county", requireAuth, async (req, res) => {
+    try {
+      // Create a test lien
+      const testLien = {
+        id: 'test-' + Date.now(),
+        recordingNumber: '99999999',
+        recordDate: new Date(),
+        debtorName: 'Test Debtor',
+        debtorAddress: '123 Test St',
+        amount: 1000,
+        creditorName: 'Test Creditor',
+        status: 'pending' as const,
+        county: 'maricopa-county',
+        documentUrl: 'https://test.com/test.pdf',
+        pdfBuffer: null
+      };
+      
+      // Initialize Airtable service
+      const airtableService = new AirtableService();
+      
+      // Sync this test lien
+      await Logger.info(`Testing Airtable sync with County field for test lien`, 'test-sync');
+      await airtableService.syncLiensToAirtable([testLien]);
+      
+      res.json({ message: "Test sync complete - check logs for County field" });
+    } catch (error) {
+      await Logger.error(`Test sync failed: ${error}`, 'test-sync');
+      res.status(500).json({ error: "Test sync failed: " + error });
+    }
+  });
+
   // Retry sync for individual lien
   app.post("/api/liens/:id/retry-sync", async (req, res) => {
     try {

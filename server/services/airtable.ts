@@ -86,7 +86,7 @@ export class AirtableService {
       for (const batch of batches) {
         try {
           const payload = { records: batch };
-          await Logger.info(`Sending to Airtable: ${JSON.stringify(payload.records[0].fields)}`, 'airtable');
+          Logger.info(`Sending to Airtable: ${JSON.stringify(payload.records[0].fields)}`, 'airtable');
           
           const response = await fetch(`https://api.airtable.com/v0/${this.baseId}/${this.tableId}`, {
             method: 'POST',
