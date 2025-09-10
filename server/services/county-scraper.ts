@@ -297,7 +297,7 @@ export class PuppeteerCountyScraper extends CountyScraper {
       let pageNum = 1;
       let hasNextPage = true;
       const MAX_PAGES = 1; // Limit to first page only for now
-      const MAX_LIENS = 20; // Reduced batch size for stability
+      const MAX_LIENS = 5; // Testing with just 5 liens for debugging
 
       while (hasNextPage && pageNum <= MAX_PAGES && allRecordingNumbers.length < MAX_LIENS) {
         await Logger.info(`📄 Processing page ${pageNum} of results (max ${MAX_PAGES} pages, max ${MAX_LIENS} liens)`, 'county-scraper');
