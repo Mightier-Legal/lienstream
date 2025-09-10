@@ -74,6 +74,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Scheduled trigger endpoint for Replit Scheduled Deployments
+  // This endpoint can be called without session auth but requires a secret token
+  app.post("/api/automation/scheduled-trigger", async (req, res) => {
+    try {
+      // Check for secret token (you should set this as an environment variable)
+      const token = req.headers['x-automation-token'] || req.query.token;
+      const expectedToken = process.env.AUTOMATION_SECRET_TOKEN || 'default-secret-token-change-me';
+      
+      if (token !== expectedToken) {
+        await Logger.warning('Unauthorized scheduled trigger attempt', 'scheduler');
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      
+      const isRunning = scheduler.isAutomationRunning();
+      
+      if (isRunning) {
+        await Logger.info('Scheduled trigger skipped - automation already running', 'scheduler');
+        return res.status(200).json({ 
+          message: "Automation already running, skipped scheduled run",
+          status: "skipped"
+        });
+      }
+      
+      // For scheduled runs, use yesterday's date by default
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const dateStr = yesterday.toISOString().split('T')[0];
+      
+      await Logger.info(`Starting scheduled automation for date: ${dateStr}`, 'scheduler');
+      
+      // Start automation in background (don't await)
+      scheduler.runAutomation('scheduled', dateStr, dateStr).catch(error => {
+        Logger.error(`Scheduled automation failed: ${error}`, 'scheduler');
+      });
+      
+      res.json({ 
+        message: "Scheduled automation started",
+        status: "started",
+        date: dateStr
+      });
+    } catch (error) {
+      await Logger.error(`Failed to trigger scheduled automation: ${error}`, 'scheduler');
+      res.status(500).json({ error: "Failed to trigger scheduled automation" });
+    }
+  });
+
   // Manual trigger
   app.post("/api/automation/trigger", requireAuth, async (req, res) => {
     try {
