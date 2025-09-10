@@ -321,26 +321,26 @@ export class DatabaseStorage implements IStorage {
       endDate.setHours(23, 59, 59, 999);
     }
     
-    // Count liens created on the specified date
+    // Count liens by their record date (not creation date)
     const [liensResult] = await db.select({ count: sql<number>`count(*)` })
       .from(liens)
       .where(and(
-        gte(liens.createdAt, startDate),
-        sql`${liens.createdAt} <= ${endDate}`
+        gte(liens.recordDate, startDate),
+        sql`${liens.recordDate} <= ${endDate}`
       ));
     const todaysLiens = Number(liensResult?.count || 0);
     
-    // Count liens synced to Airtable on the specified date
+    // Count liens synced to Airtable by record date
     const [syncedResult] = await db.select({ count: sql<number>`count(*)` })
       .from(liens)
       .where(and(
         eq(liens.status, 'synced'),
-        gte(liens.createdAt, startDate),
-        sql`${liens.createdAt} <= ${endDate}`
+        gte(liens.recordDate, startDate),
+        sql`${liens.recordDate} <= ${endDate}`
       ));
     const airtableSynced = Number(syncedResult?.count || 0);
     
-    // Count mailers sent on the specified date
+    // Count mailers sent by record date
     const [mailerResult] = await db.select({ count: sql<number>`count(*)` })
       .from(liens)
       .where(and(
@@ -348,12 +348,12 @@ export class DatabaseStorage implements IStorage {
           eq(liens.status, 'mailer_sent'),
           eq(liens.status, 'completed')
         ),
-        gte(liens.createdAt, startDate),
-        sql`${liens.createdAt} <= ${endDate}`
+        gte(liens.recordDate, startDate),
+        sql`${liens.recordDate} <= ${endDate}`
       ));
     const mailersSent = Number(mailerResult?.count || 0);
     
-    // Active leads are still within 30 days of the specified date
+    // Active leads are still within 30 days of the specified date (by record date)
     const activeDate = date ? new Date(date) : new Date();
     const thirtyDaysAgo = new Date(activeDate);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -362,8 +362,8 @@ export class DatabaseStorage implements IStorage {
       .from(liens)
       .where(and(
         eq(liens.status, 'synced'),
-        gte(liens.createdAt, thirtyDaysAgo),
-        sql`${liens.createdAt} <= ${endDate}`
+        gte(liens.recordDate, thirtyDaysAgo),
+        sql`${liens.recordDate} <= ${endDate}`
       ));
     const activeLeads = Number(activeResult?.count || 0);
     
