@@ -23,7 +23,7 @@ export const users = pgTable("users", {
 export const liens = pgTable("liens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   countyId: varchar("county_id").notNull().references(() => counties.id),
-  recordingNumber: text("recording_number").notNull(),
+  recordingNumber: text("recording_number").notNull().unique(),
   recordDate: timestamp("record_date").notNull(),
   debtorName: text("debtor_name").notNull(),
   debtorAddress: text("debtor_address"),

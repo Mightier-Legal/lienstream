@@ -18,10 +18,49 @@ import {
   type CountyRun,
   type InsertCountyRun
 } from "@shared/schema";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, desc, and, gte, sql, or } from "drizzle-orm";
 import { IStorage } from "./storage";
 import { randomUUID } from "crypto";
+
+// Database operation retry helper
+async function retryDatabaseOperation<T>(
+  operation: () => Promise<T>, 
+  operationName: string, 
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      console.error(`[Database] ${operationName} attempt ${attempt} failed:`, error.message);
+      
+      // Check if this is a transient error that might be recoverable
+      const isTransientError = 
+        error.code === '57P01' || // admin_shutdown
+        error.code === '57P02' || // crash_shutdown  
+        error.code?.startsWith('08') || // Connection exception class
+        error.code === 'ECONNRESET' ||
+        error.code === 'ETIMEDOUT' ||
+        error.code === 'ENOTFOUND';
+      
+      if (!isTransientError || attempt === maxRetries) {
+        throw error;
+      }
+      
+      // Wait with exponential backoff before retry
+      const delay = baseDelay * Math.pow(2, attempt - 1);
+      console.log(`[Database] Retrying ${operationName} in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError!;
+}
 
 export class DatabaseStorage implements IStorage {
   private scheduleConfig: { cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date } | null = null;
@@ -42,49 +81,56 @@ export class DatabaseStorage implements IStorage {
 
   // User methods
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    return await retryDatabaseOperation(async () => {
+      const [user] = await db.select().from(users).where(eq(users.id, id));
+      return user;
+    }, `getUser(${id})`);
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user;
+    return await retryDatabaseOperation(async () => {
+      const [user] = await db.select().from(users).where(eq(users.username, username));
+      return user;
+    }, `getUserByUsername(${username})`);
   }
 
   async createUser(user: InsertUser): Promise<User> {
-    const [newUser] = await db.insert(users).values(user).returning();
-    return newUser;
+    return await retryDatabaseOperation(async () => {
+      const [newUser] = await db.insert(users).values(user).returning();
+      return newUser;
+    }, `createUser(${user.username})`);
   }
 
   // Lien methods
   async getLien(id: string): Promise<Lien | undefined> {
-    const [lien] = await db.select().from(liens).where(eq(liens.id, id));
-    return lien;
+    return await retryDatabaseOperation(async () => {
+      const [lien] = await db.select().from(liens).where(eq(liens.id, id));
+      return lien;
+    }, `getLien(${id})`);
   }
 
   async getLienById(id: string): Promise<Lien | undefined> {
-    const [lien] = await db.select().from(liens).where(eq(liens.id, id));
-    return lien;
+    return await retryDatabaseOperation(async () => {
+      const [lien] = await db.select().from(liens).where(eq(liens.id, id));
+      return lien;
+    }, `getLienById(${id})`);
   }
 
   async getLienByRecordingNumber(recordingNumber: string): Promise<Lien | undefined> {
-    const [lien] = await db.select().from(liens).where(eq(liens.recordingNumber, recordingNumber));
-    return lien;
+    return await retryDatabaseOperation(async () => {
+      const [lien] = await db.select().from(liens).where(eq(liens.recordingNumber, recordingNumber));
+      return lien;
+    }, `getLienByRecordingNumber(${recordingNumber})`);
   }
 
   async getLiensByStatus(status: string): Promise<Lien[]> {
-    return await db.select().from(liens).where(eq(liens.status, status));
+    return await retryDatabaseOperation(async () => {
+      return await db.select().from(liens).where(eq(liens.status, status));
+    }, `getLiensByStatus(${status})`);
   }
 
   async createLien(lien: InsertLien): Promise<Lien> {
-    try {
-      // Check if lien already exists
-      const existing = await this.getLienByRecordingNumber(lien.recordingNumber);
-      if (existing) {
-        console.log(`[Storage] Lien ${lien.recordingNumber} already exists`);
-        return existing;
-      }
-      
+    return await retryDatabaseOperation(async () => {
       // Ensure countyId is set
       const lienData = {
         ...lien,
@@ -96,13 +142,22 @@ export class DatabaseStorage implements IStorage {
       
       console.log(`[Storage] Creating lien ${lien.recordingNumber} with county ${lienData.countyId}`);
       
-      const [newLien] = await db.insert(liens).values(lienData).returning();
-      console.log(`[Storage] Successfully saved lien ${lien.recordingNumber}`);
-      return newLien;
-    } catch (error) {
-      console.error(`[Storage] Error creating lien ${lien.recordingNumber}:`, error);
-      throw error;
-    }
+      try {
+        const [newLien] = await db.insert(liens).values(lienData).returning();
+        console.log(`[Storage] Successfully saved lien ${lien.recordingNumber}`);
+        return newLien;
+      } catch (error: any) {
+        // Handle unique constraint violation - lien already exists
+        if (error.code === '23505') {
+          console.log(`[Storage] Lien ${lien.recordingNumber} already exists, fetching existing record`);
+          const existing = await db.select().from(liens).where(eq(liens.recordingNumber, lien.recordingNumber));
+          if (existing.length > 0) {
+            return existing[0];
+          }
+        }
+        throw error;
+      }
+    }, `createLien(${lien.recordingNumber})`);
   }
 
   async updateLienStatus(recordingNumber: string, status: string): Promise<void> {
