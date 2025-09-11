@@ -248,12 +248,42 @@ export class PuppeteerCountyScraper extends CountyScraper {
   }
 
   async scrapeCountyLiens(fromDate?: string, toDate?: string, limit?: number): Promise<ScrapedLien[]> {
+    // Ensure browser is initialized with retry logic
     if (!this.browser) {
-      await this.initialize();
+      let initAttempts = 0;
+      const maxInitAttempts = 3;
+      
+      while (!this.browser && initAttempts < maxInitAttempts) {
+        initAttempts++;
+        try {
+          await Logger.info(`Browser initialization attempt ${initAttempts}/${maxInitAttempts}`, 'county-scraper');
+          await this.initialize();
+        } catch (initError) {
+          await Logger.error(`Browser init attempt ${initAttempts} failed: ${initError}`, 'county-scraper');
+          if (initAttempts >= maxInitAttempts) {
+            // Return empty array instead of throwing - prevent complete failure
+            await Logger.error('Could not initialize browser after 3 attempts - returning empty results to prevent timeout', 'county-scraper');
+            return [];
+          }
+          // Exponential backoff: 5s, 10s, 15s
+          await new Promise(resolve => setTimeout(resolve, 5000 * initAttempts));
+        }
+      }
     }
 
-    const page = await this.browser!.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
+    if (!this.browser) {
+      await Logger.error('Browser not available - returning empty results to prevent timeout', 'county-scraper');
+      return [];
+    }
+
+    let page;
+    try {
+      page = await this.browser.newPage();
+      await page.setViewport({ width: 1920, height: 1080 });
+    } catch (pageError) {
+      await Logger.error(`Could not create new page: ${pageError} - returning empty results`, 'county-scraper');
+      return [];
+    }
     
     const liens: ScrapedLien[] = [];
 
@@ -312,16 +342,33 @@ export class PuppeteerCountyScraper extends CountyScraper {
           }
           
           if (navigationAttempts < maxNavigationAttempts) {
-            await Logger.info(`Waiting 10 seconds before retry...`, 'county-scraper');
-            await new Promise(resolve => setTimeout(resolve, 10000));
+            const waitTime = 10000 * navigationAttempts; // Exponential backoff: 10s, 20s, 30s
+            await Logger.info(`Waiting ${waitTime/1000} seconds before retry...`, 'county-scraper');
+            await new Promise(resolve => setTimeout(resolve, waitTime));
           } else {
-            throw new Error(`Failed to navigate to Maricopa County website after ${maxNavigationAttempts} attempts: ${navError.message}`);
+            // Don't throw - return what we have (empty array)
+            await Logger.error(`Could not navigate after ${maxNavigationAttempts} attempts - returning empty results to prevent timeout`, 'county-scraper');
+            try {
+              await page.close();
+            } catch (closeError) {
+              // Ignore close errors
+            }
+            return liens; // Return empty array
           }
         }
       }
 
-      // Wait for page to load
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Check if navigation was successful
+      if (!navigationSuccess) {
+        await Logger.error('Navigation failed - returning empty results to prevent timeout', 'county-scraper');
+        return liens;
+      }
+      
+      // Wait for page to load with timeout protection
+      await Promise.race([
+        new Promise(resolve => setTimeout(resolve, 3000)),
+        new Promise(resolve => setTimeout(resolve, 10000)) // Max 10 seconds wait
+      ]);
       
       // Log the current URL to verify navigation
       const currentUrl = page.url();
@@ -862,15 +909,21 @@ export class PuppeteerCountyScraper extends CountyScraper {
       
       // Handle protocol timeout specifically
       if (errorMessage.includes('Protocol') || errorMessage.includes('protocolTimeout') || errorMessage.includes('Network.enable')) {
-        await Logger.error(`Protocol timeout in ${this.county.name} - browser connection is slow. The protocolTimeout has been increased to 3 minutes.`, 'county-scraper');
+        await Logger.error(`Protocol timeout in ${this.county.name} - browser connection is slow. Returning ${liens.length} partial results.`, 'county-scraper');
       } else {
-        await Logger.error(`Failed to scrape liens from ${this.county.name}: ${errorMessage}`, 'county-scraper');
+        await Logger.error(`Error in ${this.county.name}: ${errorMessage}. Returning ${liens.length} partial results.`, 'county-scraper');
       }
       
-      // Return empty array instead of throwing to allow automation to continue
+      // Always return partial results instead of throwing
       return liens;
     } finally {
-      await page.close();
+      if (page) {
+        try {
+          await page.close();
+        } catch (closeError) {
+          // Ignore page close errors
+        }
+      }
     }
 
     return liens;

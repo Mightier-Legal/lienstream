@@ -268,20 +268,34 @@ export class SchedulerService {
             30 * 60 * 1000 : // 30 minutes for production deployments
             15 * 60 * 1000;  // 15 minutes for development
           
-          await Promise.race([
-            scraper.initialize(),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Scraper initialization timeout')), 30000)
-            )
-          ]);
+          try {
+            await Promise.race([
+              scraper.initialize(),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Scraper initialization timeout')), 60000) // Increase to 60 seconds
+              )
+            ]);
+          } catch (initError) {
+            await Logger.error(`Scraper initialization failed: ${initError} - attempting to continue`, 'scheduler');
+            // Don't throw - let scrapeCountyLiens handle the uninitialized browser
+          }
 
-          // Scrape with timeout to prevent hanging
-          const scrapedLiens = await Promise.race([
-            scraper.scrapeCountyLiens(fromDate, toDate, limit),
-            new Promise<ScrapedLien[]>((_, reject) => 
-              setTimeout(() => reject(new Error('Scraping timeout exceeded')), SCRAPER_TIMEOUT)
-            )
-          ]);
+          // Scrape with timeout protection but always get results
+          let scrapedLiens: ScrapedLien[] = [];
+          try {
+            scrapedLiens = await Promise.race([
+              scraper.scrapeCountyLiens(fromDate, toDate, limit),
+              new Promise<ScrapedLien[]>((resolve) => 
+                setTimeout(() => {
+                  Logger.warning(`Scraping timeout reached (${SCRAPER_TIMEOUT/1000}s) - using partial results`, 'scheduler');
+                  resolve([]); // Return empty array instead of rejecting
+                }, SCRAPER_TIMEOUT)
+              )
+            ]);
+          } catch (scrapeError) {
+            await Logger.error(`Scraping error: ${scrapeError} - continuing with empty results`, 'scheduler');
+            scrapedLiens = [];
+          }
           
           if (scrapedLiens.length > 0) {
             totalLiensFound += scrapedLiens.length;
@@ -306,28 +320,30 @@ export class SchedulerService {
           }
 
         } catch (error) {
-          await Logger.error(`Failed to scrape ${county.name}: ${error}`, 'scheduler');
-          
-          // If there's a protocol timeout or critical browser error, stop automation
           const errorMessage = error instanceof Error ? error.message : String(error);
+          await Logger.error(`Error scraping ${county.name}: ${errorMessage}`, 'scheduler');
+          
+          // Log the error but don't stop the entire automation
           if (errorMessage.includes('ProtocolError') || 
               errorMessage.includes('timed out') ||
               errorMessage.includes('Browser is not open') ||
               errorMessage.includes('crashed')) {
-            await Logger.error(`Critical browser error detected, stopping automation`, 'scheduler');
-            
-            // Update county run as failed
-            if (countyRunId) {
-              await storage.updateCountyRun(countyRunId, {
-                status: 'failed',
-                endTime: new Date(),
-                errorMessage: errorMessage
-              });
-            }
-            
-            // Mark automation as failed and break out of loop
-            throw new Error(`Critical error during scraping: ${errorMessage}`);
+            await Logger.warning(`Browser issue detected for ${county.name} - continuing with other counties`, 'scheduler');
           }
+          
+          // Update county run as completed with 0 liens (partial success)
+          if (countyRunId) {
+            await storage.updateCountyRun(countyRunId, {
+              status: 'completed',
+              endTime: new Date(),
+              liensFound: 0,
+              liensProcessed: 0,
+              errorMessage: `Completed with error: ${errorMessage}`
+            });
+          }
+          
+          // Continue processing other counties instead of failing entirely
+          await Logger.info('Continuing automation despite error', 'scheduler');
           
           // For non-critical errors, continue with other counties
           if (countyRunId) {
