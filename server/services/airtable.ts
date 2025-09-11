@@ -45,8 +45,8 @@ export class AirtableService {
         'http://localhost:5000';
       
       const records: AirtableRecord[] = liens.map((lien) => {
-        // Maricopa County record ID in Airtable Counties table
-        const maricopaCountyRecordId = 'rechJ69LKZxLLuQBJ';
+        // Get County record ID from environment or omit if not configured
+        const countyRecordId = process.env.AIRTABLE_COUNTY_RECORD_ID;
         
         // If we have a PDF buffer, store it and get the serving URL
         let pdfAttachment;
@@ -70,13 +70,21 @@ export class AirtableService {
         // Convert recording number to number
         const recordNumber = parseInt(lien.recordingNumber, 10);
         
-        return {
-          fields: {
-            'County': [maricopaCountyRecordId], // Linked record field - array of record IDs
-            'Record Number': recordNumber, // Convert to number for Airtable number field
-            'PDF Link': pdfAttachment // Now an attachment field
-          }
+        // Build fields object dynamically
+        const fields: any = {
+          'Record Number': recordNumber, // Convert to number for Airtable number field
+          'PDF Link': pdfAttachment // Now an attachment field
         };
+        
+        // Only include County field if we have a valid record ID
+        if (countyRecordId) {
+          fields['County'] = [countyRecordId]; // Linked record field - array of record IDs
+          Logger.info(`Using County record ID: ${countyRecordId}`, 'airtable');
+        } else {
+          Logger.warning('County record ID not configured - omitting County field', 'airtable');
+        }
+        
+        return { fields };
       });
 
       // Batch create records (Airtable allows up to 10 records per request)
@@ -85,7 +93,10 @@ export class AirtableService {
 
       for (const batch of batches) {
         try {
-          const payload = { records: batch };
+          const payload = { 
+            records: batch,
+            typecast: true // Allow Airtable to coerce field types
+          };
           Logger.info(`Sending to Airtable: ${JSON.stringify(payload.records[0].fields)}`, 'airtable');
           
           const response = await fetch(`https://api.airtable.com/v0/${this.baseId}/${this.tableId}`, {
@@ -98,8 +109,22 @@ export class AirtableService {
           });
 
           if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Airtable API error: ${response.status} - ${error}`);
+            const errorText = await response.text();
+            let errorDetails = errorText;
+            try {
+              // Try to parse Airtable's JSON error response for better details
+              const errorJson = JSON.parse(errorText);
+              if (errorJson.error) {
+                errorDetails = `${errorJson.error.type}: ${errorJson.error.message}`;
+                if (errorJson.error.type === 'INVALID_VALUE_FOR_COLUMN' || 
+                    errorJson.error.type === 'INVALID_RECORD_ID') {
+                  Logger.error(`Field validation error - check that County record ID exists in production base`, 'airtable');
+                }
+              }
+            } catch {
+              // If not JSON, use the raw text
+            }
+            throw new Error(`Airtable API error (${response.status}): ${errorDetails}`);
           }
 
           const result = await response.json();
