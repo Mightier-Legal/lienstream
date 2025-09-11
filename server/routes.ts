@@ -373,7 +373,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/liens/sync-pending", requireAuth, async (req, res) => {
     try {
       const pendingLiens = await storage.getLiensByStatus('pending');
-      console.log(`[Manual Sync] Found ${pendingLiens.length} pending liens to sync`);
       
       if (pendingLiens.length === 0) {
         return res.json({ 
@@ -407,7 +406,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         total: pendingLiens.length
       });
     } catch (error: any) {
-      console.error('[Manual Sync] Error:', error);
       await storage.createSystemLog({
         level: 'error',
         message: `Manual sync failed: ${error.message}`,

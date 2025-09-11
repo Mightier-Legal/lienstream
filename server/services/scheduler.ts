@@ -420,7 +420,6 @@ export class SchedulerService {
   }
 
   isAutomationRunning(): boolean {
-    console.log('[DEBUG] isAutomationRunning called, current value:', this.isRunning);
     return this.isRunning;
   }
 
