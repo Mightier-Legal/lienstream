@@ -369,6 +369,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Manually sync pending liens to Airtable
+  app.post("/api/liens/sync-pending", requireAuth, async (req, res) => {
+    try {
+      const pendingLiens = await storage.getLiensByStatus('pending');
+      console.log(`[Manual Sync] Found ${pendingLiens.length} pending liens to sync`);
+      
+      if (pendingLiens.length === 0) {
+        return res.json({ 
+          message: "No pending liens to sync",
+          synced: 0
+        });
+      }
+
+      // Import AirtableService
+      const { AirtableService } = await import('./services/airtable');
+      const airtableService = new AirtableService();
+      
+      // syncLiensToAirtable returns void but updates status internally
+      await airtableService.syncLiensToAirtable(pendingLiens);
+      
+      // Count successfully synced liens  
+      const syncedLiens = await storage.getLiensByStatus('synced');
+      const newlySynced = syncedLiens.filter(l => 
+        pendingLiens.some(p => p.recordingNumber === l.recordingNumber)
+      ).length;
+      
+      await storage.createSystemLog({
+        level: 'info',
+        message: `Manual sync: ${newlySynced} liens synced to Airtable`,
+        component: 'Manual Sync'
+      });
+      
+      res.json({
+        message: `Successfully synced ${newlySynced} liens to Airtable`,
+        synced: newlySynced,
+        total: pendingLiens.length
+      });
+    } catch (error: any) {
+      console.error('[Manual Sync] Error:', error);
+      await storage.createSystemLog({
+        level: 'error',
+        message: `Manual sync failed: ${error.message}`,
+        component: 'Manual Sync'
+      });
+      res.status(500).json({ error: "Failed to sync liens to Airtable" });
+    }
+  });
+
   // Recent automation runs
   app.get("/api/automation/runs", requireAuth, async (req, res) => {
     try {
