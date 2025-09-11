@@ -169,7 +169,7 @@ export class SchedulerService {
     return `daily runs at ${timeStr}`;
   }
 
-  async runAutomation(type: 'scheduled' | 'manual', fromDate?: string, toDate?: string): Promise<void> {
+  async runAutomation(type: 'scheduled' | 'manual', fromDate?: string, toDate?: string, limit?: number): Promise<void> {
     if (this.isRunning) {
       await Logger.warning('Automation already running, skipping', 'scheduler');
       return;
@@ -275,7 +275,7 @@ export class SchedulerService {
 
           // Scrape with timeout to prevent hanging
           const scrapedLiens = await Promise.race([
-            scraper.scrapeCountyLiens(fromDate, toDate),
+            scraper.scrapeCountyLiens(fromDate, toDate, limit),
             new Promise<ScrapedLien[]>((_, reject) => 
               setTimeout(() => reject(new Error('Scraping timeout exceeded')), SCRAPER_TIMEOUT)
             )

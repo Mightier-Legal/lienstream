@@ -131,11 +131,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Automation is already running" });
       }
 
-      const { fromDate, toDate } = req.body; // Get date range from request body
-      console.log('[DEBUG] Starting automation with dates:', fromDate, toDate);
+      const { fromDate, toDate, limit } = req.body; // Get date range and limit from request body
+      console.log('[DEBUG] Starting automation with dates:', fromDate, toDate, 'limit:', limit);
       
-      // Start automation in background with optional date range
-      scheduler.runAutomation('manual', fromDate, toDate).catch(error => {
+      // Start automation in background with optional date range and limit
+      scheduler.runAutomation('manual', fromDate, toDate, limit).catch(error => {
         Logger.error(`Manual automation failed: ${error}`, 'api');
       });
 

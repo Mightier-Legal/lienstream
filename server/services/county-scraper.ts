@@ -41,7 +41,7 @@ interface ScrapedLien {
 export abstract class CountyScraper {
   constructor(protected county: County, protected config: CountyConfig) {}
 
-  abstract scrapeCountyLiens(fromDate?: string, toDate?: string): Promise<ScrapedLien[]>;
+  abstract scrapeCountyLiens(fromDate?: string, toDate?: string, limit?: number): Promise<ScrapedLien[]>;
 
   async scrapeLiens(): Promise<Lien[]> {
     const scrapedLiens = await this.scrapeCountyLiens();
@@ -247,7 +247,7 @@ export class PuppeteerCountyScraper extends CountyScraper {
     }
   }
 
-  async scrapeCountyLiens(fromDate?: string, toDate?: string): Promise<ScrapedLien[]> {
+  async scrapeCountyLiens(fromDate?: string, toDate?: string, limit?: number): Promise<ScrapedLien[]> {
     if (!this.browser) {
       await this.initialize();
     }
@@ -416,9 +416,11 @@ export class PuppeteerCountyScraper extends CountyScraper {
         await Logger.info(`🔍 No recordings found in search. Added user's example 20250479507 for testing`, 'county-scraper');
       }
       
-      // Process all recording numbers found
-      const recordingsToProcess = allRecordingNumbers;
-      await Logger.info(`Processing ${recordingsToProcess.length} recording numbers (out of ${allRecordingNumbers.length} found)`, 'county-scraper');
+      // Process all recording numbers found, or limit if specified
+      const recordingsToProcess = limit && limit > 0 
+        ? allRecordingNumbers.slice(0, limit)
+        : allRecordingNumbers;
+      await Logger.info(`Processing ${recordingsToProcess.length} recording numbers (out of ${allRecordingNumbers.length} found${limit ? `, limited to ${limit}` : ''})`, 'county-scraper');
       
       // Create a single page for all processing to avoid constant reconnections
       let recordPage: Page | null = null;
