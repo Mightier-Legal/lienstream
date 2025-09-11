@@ -201,8 +201,8 @@ export class PuppeteerCountyScraper extends CountyScraper {
               '--ignore-certificate-errors',
               '--ignore-certificate-errors-spki-list'
             ],
-            timeout: 120000, // 2 minutes launch timeout
-            protocolTimeout: 600000, // Increase to 10 minutes for very slow connections/deployments
+            timeout: 300000, // 5 minutes launch timeout for production
+            protocolTimeout: 600000, // 10 minutes for very slow connections/deployments
             ignoreHTTPSErrors: true,
             defaultViewport: {
               width: 1920,
@@ -279,11 +279,46 @@ export class PuppeteerCountyScraper extends CountyScraper {
       await Logger.info(`🔗 Navigating directly to results page`, 'county-scraper');
       await Logger.info(`🔗 Full URL: ${directUrl}`, 'county-scraper');
       
-      // Navigate directly to the results page
-      await page.goto(directUrl, { 
-        waitUntil: 'networkidle2',
-        timeout: 30000 
-      });
+      // Navigate with retry logic and extended timeout for production environments
+      let navigationSuccess = false;
+      let navigationAttempts = 0;
+      const maxNavigationAttempts = 3;
+      
+      while (!navigationSuccess && navigationAttempts < maxNavigationAttempts) {
+        navigationAttempts++;
+        try {
+          await Logger.info(`🌐 Navigation attempt ${navigationAttempts}/${maxNavigationAttempts} to Maricopa County website...`, 'county-scraper');
+          
+          // Set page timeout for production environments
+          page.setDefaultNavigationTimeout(300000); // 5 minutes
+          page.setDefaultTimeout(300000); // 5 minutes for all operations
+          
+          await page.goto(directUrl, { 
+            waitUntil: 'domcontentloaded', // Less strict than networkidle2
+            timeout: 300000 // 5 minutes for production networks
+          });
+          
+          navigationSuccess = true;
+          await Logger.success(`✅ Successfully navigated to Maricopa County website`, 'county-scraper');
+        } catch (navError: any) {
+          await Logger.error(`Navigation attempt ${navigationAttempts} failed: ${navError.message}`, 'county-scraper');
+          
+          if (navError.message.includes('net::ERR_NAME_NOT_RESOLVED')) {
+            await Logger.error('DNS resolution failed - check network connectivity in production', 'county-scraper');
+          } else if (navError.message.includes('net::ERR_CONNECTION_REFUSED')) {
+            await Logger.error('Connection refused - site may be blocking automated requests', 'county-scraper');
+          } else if (navError.message.includes('TimeoutError')) {
+            await Logger.error('Navigation timeout - production network may be slow or restricted', 'county-scraper');
+          }
+          
+          if (navigationAttempts < maxNavigationAttempts) {
+            await Logger.info(`Waiting 10 seconds before retry...`, 'county-scraper');
+            await new Promise(resolve => setTimeout(resolve, 10000));
+          } else {
+            throw new Error(`Failed to navigate to Maricopa County website after ${maxNavigationAttempts} attempts: ${navError.message}`);
+          }
+        }
+      }
 
       // Wait for page to load
       await new Promise(resolve => setTimeout(resolve, 3000));

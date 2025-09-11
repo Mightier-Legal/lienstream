@@ -263,8 +263,10 @@ export class SchedulerService {
           allScrapers.push(scraper);
           this.currentScrapers.push(scraper);
           
-          // Initialize the scraper with timeout
-          const SCRAPER_TIMEOUT = 10 * 60 * 1000; // 10 minutes timeout per county
+          // Initialize the scraper with timeout (longer for production environments)
+          const SCRAPER_TIMEOUT = process.env.REPLIT_DEPLOYMENT ? 
+            30 * 60 * 1000 : // 30 minutes for production deployments
+            15 * 60 * 1000;  // 15 minutes for development
           
           await Promise.race([
             scraper.initialize(),
