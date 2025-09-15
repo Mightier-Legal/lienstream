@@ -201,8 +201,8 @@ export class PuppeteerCountyScraper extends CountyScraper {
               '--ignore-certificate-errors',
               '--ignore-certificate-errors-spki-list'
             ],
-            timeout: 300000, // 5 minutes launch timeout for production
-            protocolTimeout: 600000, // 10 minutes for very slow connections/deployments
+            timeout: 600000, // 10 minutes launch timeout for production
+            protocolTimeout: 1200000, // 20 minutes for very slow connections/deployments
             ignoreHTTPSErrors: true,
             defaultViewport: {
               width: 1920,
@@ -278,7 +278,13 @@ export class PuppeteerCountyScraper extends CountyScraper {
 
     let page;
     try {
-      page = await this.browser.newPage();
+      // Create page with timeout protection
+      page = await Promise.race([
+        this.browser.newPage(),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Page creation timeout after 30 seconds')), 30000)
+        )
+      ]);
       await page.setViewport({ width: 1920, height: 1080 });
     } catch (pageError) {
       await Logger.error(`Could not create new page: ${pageError} - returning empty results`, 'county-scraper');
