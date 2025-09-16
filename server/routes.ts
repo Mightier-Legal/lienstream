@@ -220,6 +220,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bulk sync all pending liens to Airtable
+  app.post("/api/airtable/sync-all", requireAuth, async (req, res) => {
+    try {
+      // Get all pending liens
+      const pendingLiens = await storage.getPendingLiens();
+      
+      if (pendingLiens.length === 0) {
+        return res.json({ message: "No pending liens to sync", count: 0 });
+      }
+      
+      // Import AirtableService
+      const { AirtableService } = await import("./services/airtable");
+      const airtableService = new AirtableService();
+      
+      // Transform liens to Airtable format
+      const liensForAirtable = pendingLiens.map((lien: any) => ({
+        recordingNumber: lien.recordingNumber,
+        recordingDate: lien.recordDate,
+        amount: lien.amount,
+        debtorNames: lien.debtorNames,
+        documentUrl: lien.documentUrl,
+        countyId: '1', // Default county ID for Maricopa
+        status: 'pending'
+      }));
+      
+      // Sync to Airtable in batches (Airtable API limits to 10 records per request)
+      const batchSize = 10;
+      let successCount = 0;
+      let failedCount = 0;
+      
+      for (let i = 0; i < liensForAirtable.length; i += batchSize) {
+        const batch = liensForAirtable.slice(i, i + batchSize);
+        try {
+          await airtableService.syncLiensToAirtable(batch);
+          
+          // Update status for this batch
+          for (const lien of batch) {
+            await storage.updateLienStatus(lien.recordingNumber, 'synced');
+            successCount++;
+          }
+        } catch (error) {
+          failedCount += batch.length;
+          await storage.createSystemLog({
+            level: "error",
+            message: `Batch sync failed for liens ${i} to ${i + batch.length}: ${error}`,
+            component: "api"
+          });
+        }
+      }
+      
+      await storage.createSystemLog({
+        level: "info",
+        message: `Bulk sync completed: ${successCount} succeeded, ${failedCount} failed out of ${pendingLiens.length} total`,
+        component: "api"
+      });
+      
+      res.json({ 
+        message: "Bulk sync completed", 
+        total: pendingLiens.length,
+        success: successCount,
+        failed: failedCount
+      });
+    } catch (error) {
+      await storage.createSystemLog({
+        level: "error",
+        message: `Bulk sync failed: ${error}`,
+        component: "api"
+      });
+      res.status(500).json({ error: "Failed to sync liens to Airtable" });
+    }
+  });
+
   // Recent liens with pagination
   app.get("/api/liens/recent", requireAuth, async (req, res) => {
     try {

@@ -179,6 +179,13 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getPendingLiens(): Promise<Lien[]> {
+    return await db.select()
+      .from(liens)
+      .where(eq(liens.status, 'pending'))
+      .orderBy(desc(liens.recordDate));
+  }
+
   async getLiensCount(): Promise<number> {
     const [result] = await db.select({ count: sql<number>`count(*)` }).from(liens);
     return Number(result?.count || 0);
