@@ -502,10 +502,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/pdf/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      const pdf = pdfStorage.getPdf(id);
+      let pdf = pdfStorage.getPdf(id);
+      
+      // If PDF not found, try to extract recording number from request and re-download
+      if (!pdf && req.query.recording) {
+        const recordingNumber = req.query.recording as string;
+        const buffer = await pdfStorage.redownloadPdf(recordingNumber);
+        
+        if (buffer) {
+          // Store the re-downloaded PDF
+          const newId = pdfStorage.storePdf(buffer, recordingNumber);
+          // Redirect to the new ID
+          return res.redirect(`/api/pdf/${newId}`);
+        }
+      }
       
       if (!pdf) {
-        return res.status(404).json({ error: "PDF not found" });
+        return res.status(404).json({ error: "PDF not found and could not be re-downloaded" });
       }
       
       res.setHeader("Content-Type", "application/pdf");
