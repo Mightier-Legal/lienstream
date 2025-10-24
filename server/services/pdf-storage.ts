@@ -11,7 +11,7 @@ interface StoredPdf {
 
 class PdfStorageService {
   private pdfs: Map<string, StoredPdf> = new Map();
-  private maxAge = 1000 * 60 * 60; // 1 hour
+  private maxAge = 1000 * 60 * 60 * 24; // 24 hours - give Airtable plenty of time to download
 
   storePdf(buffer: Buffer, recordingNumber: string): string {
     const id = crypto.randomUUID();

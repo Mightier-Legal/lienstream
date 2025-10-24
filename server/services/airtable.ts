@@ -48,23 +48,34 @@ export class AirtableService {
         // Get County record ID from environment or omit if not configured
         const countyRecordId = process.env.AIRTABLE_COUNTY_RECORD_ID;
         
-        // If we have a PDF buffer, store it and get the serving URL
+        // Determine the PDF URL to use
         let pdfAttachment;
-        if (lien.pdfBuffer) {
+        
+        // Check if we already have a local URL from the scraper
+        if (lien.documentUrl && (lien.documentUrl.includes('/api/pdf/') || lien.documentUrl.includes(baseUrl))) {
+          // Already have a local URL - use it directly
+          pdfAttachment = [{
+            url: lien.documentUrl,
+            filename: `${lien.recordingNumber}.pdf`
+          }];
+          Logger.info(`Using existing local PDF URL for ${lien.recordingNumber}: ${lien.documentUrl}`, 'airtable');
+        } else if (lien.pdfBuffer) {
+          // Have a buffer - store it and get URL
           const pdfId = pdfStorage.storePdf(lien.pdfBuffer, lien.recordingNumber);
           const pdfUrl = `${baseUrl}/api/pdf/${pdfId}`;
           pdfAttachment = [{
             url: pdfUrl,
             filename: `${lien.recordingNumber}.pdf`
           }];
-          Logger.info(`Stored PDF for ${lien.recordingNumber} at ${pdfUrl}`, 'airtable');
+          Logger.info(`Stored PDF buffer for ${lien.recordingNumber} at ${pdfUrl}`, 'airtable');
         } else {
-          // Fallback to original URL if no buffer
-          const originalUrl = lien.documentUrl || `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${lien.recordingNumber}.pdf`;
+          // Fallback to external URL (this shouldn't happen with new scraping)
+          const externalUrl = lien.documentUrl || `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${lien.recordingNumber}.pdf`;
           pdfAttachment = [{
-            url: originalUrl,
+            url: externalUrl,
             filename: `${lien.recordingNumber}.pdf`
           }];
+          Logger.warning(`Using external PDF URL for ${lien.recordingNumber}: ${externalUrl} - Airtable may not be able to download this`, 'airtable');
         }
         
         // Convert recording number to number

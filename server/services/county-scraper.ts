@@ -26,6 +26,7 @@ interface CountyConfig {
 }
 import { Logger } from './logger';
 import { storage } from '../storage';
+import { pdfStorage } from './pdf-storage';
 
 interface ScrapedLien {
   recordingNumber: string;
@@ -836,11 +837,20 @@ export class PuppeteerCountyScraper extends CountyScraper {
           const pdfBuffer = await this.downloadPdf(actualPdfUrl, recordingNumber, recordPage);
           
           if (pdfBuffer) {
+            // Store PDF locally and get serving URL
+            const pdfId = pdfStorage.storePdf(pdfBuffer, recordingNumber);
+            const baseUrl = process.env.REPLIT_DEV_DOMAIN ? 
+              `https://${process.env.REPLIT_DEV_DOMAIN}` : 
+              'http://localhost:5000';
+            const localPdfUrl = `${baseUrl}/api/pdf/${pdfId}`;
+            
+            await Logger.info(`📦 Stored PDF locally: ${localPdfUrl}`, 'county-scraper');
+            
             const lienInfo = {
               recordingNumber,
               recordingDate: lienData.recordingDate ? new Date(lienData.recordingDate) : new Date(),
-              documentUrl: actualPdfUrl,
-              pdfBuffer: pdfBuffer, // Store the actual PDF data
+              documentUrl: localPdfUrl, // Use local URL instead of external
+              pdfBuffer: pdfBuffer, // Keep for immediate use if needed
               grantor: lienData.grantor,
               grantee: lienData.grantee,
               address: lienData.address,
@@ -848,10 +858,10 @@ export class PuppeteerCountyScraper extends CountyScraper {
             };
             
             liens.push(lienInfo);
-            await Logger.success(`✅ Downloaded PDF for lien ${recordingNumber} (${pdfBuffer.length} bytes)`, 'county-scraper');
+            await Logger.success(`✅ Downloaded and stored PDF for lien ${recordingNumber} (${pdfBuffer.length} bytes)`, 'county-scraper');
             
             // Save lien immediately to database to prevent data loss on restart
-            console.log(`[DEBUG] About to save lien ${recordingNumber} to database`);
+            console.log(`[DEBUG] About to save lien ${recordingNumber} to database with local URL: ${localPdfUrl}`);
             try {
               await storage.createLien({
                 recordingNumber: lienInfo.recordingNumber,
@@ -862,11 +872,11 @@ export class PuppeteerCountyScraper extends CountyScraper {
                 amount: (lienInfo.amount || 0).toString(),
                 creditorName: lienInfo.grantee || 'Medical Provider',
                 creditorAddress: '',
-                documentUrl: lienInfo.documentUrl,
+                documentUrl: lienInfo.documentUrl, // This is now the local URL
                 status: 'pending'
               });
-              await Logger.info(`💾 Saved lien ${recordingNumber} to database`, 'county-scraper');
-              console.log(`[DEBUG] Successfully saved lien ${recordingNumber}`);
+              await Logger.info(`💾 Saved lien ${recordingNumber} to database with local PDF URL`, 'county-scraper');
+              console.log(`[DEBUG] Successfully saved lien ${recordingNumber} with local PDF`);
             } catch (saveError) {
               console.error(`[DEBUG] Failed to save lien ${recordingNumber}:`, saveError);
               await Logger.error(`Failed to save lien ${recordingNumber}: ${saveError}`, 'county-scraper');
