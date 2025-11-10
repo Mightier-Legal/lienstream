@@ -86,9 +86,8 @@ export class PuppeteerCountyScraper extends CountyScraper {
     try {
       await Logger.info(`📥 Downloading PDF from: ${pdfUrl}`, 'county-scraper');
       
-      // Try to download the PDF
+      // First try direct fetch (fastest method)
       try {
-        // First try direct fetch
         const response = await fetch(pdfUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
@@ -113,26 +112,45 @@ export class PuppeteerCountyScraper extends CountyScraper {
         await Logger.info(`Direct fetch failed: ${fetchError}`, 'county-scraper');
       }
       
-      // If direct fetch fails and we have a browser page, try downloading through browser
+      // If direct fetch fails and we have a browser page, download through page context
+      // This avoids navigating away from current page and prevents frame detachment
       if (page) {
         try {
-          const navResponse = await page.goto(pdfUrl, { 
-            waitUntil: 'networkidle2',
-            timeout: 30000 
-          });
+          const pdfData = await page.evaluate(async (url: string) => {
+            try {
+              const response = await fetch(url, {
+                headers: {
+                  'Accept': 'application/pdf,*/*'
+                }
+              });
+              
+              if (response.ok) {
+                const arrayBuffer = await response.arrayBuffer();
+                // Convert to base64 for transfer from browser context
+                const uint8Array = new Uint8Array(arrayBuffer);
+                const base64 = btoa(Array.from(uint8Array).map(b => String.fromCharCode(b)).join(''));
+                return { success: true, data: base64, size: arrayBuffer.byteLength };
+              }
+              return { success: false, error: `HTTP ${response.status}` };
+            } catch (error: any) {
+              return { success: false, error: error.message };
+            }
+          }, pdfUrl);
           
-          if (navResponse && navResponse.ok()) {
-            const buffer = await navResponse.buffer();
+          if (pdfData.success && pdfData.data) {
+            const buffer = Buffer.from(pdfData.data, 'base64');
             
             // Check if it's a PDF
             const header = buffer.toString('utf8', 0, 5);
             if (header.startsWith('%PDF')) {
-              await Logger.success(`✅ Downloaded PDF via browser (${buffer.length} bytes)`, 'county-scraper');
+              await Logger.success(`✅ Downloaded PDF via browser context (${pdfData.size} bytes)`, 'county-scraper');
               return buffer;
             }
+          } else {
+            await Logger.info(`Browser context download failed: ${pdfData.error}`, 'county-scraper');
           }
-        } catch (navError) {
-          await Logger.info(`Browser download failed: ${navError}`, 'county-scraper');
+        } catch (evalError) {
+          await Logger.info(`Page evaluate download failed: ${evalError}`, 'county-scraper');
         }
       }
       
@@ -520,20 +538,30 @@ export class PuppeteerCountyScraper extends CountyScraper {
         await Logger.info(`📑 Processing recording number ${i+1}/${recordingsToProcess.length}: ${recordingNumber}`, 'county-scraper');
         
         try {
-          // Reinitialize browser for each lien to avoid protocol timeout issues
+          // Only initialize browser if it's not connected (should only happen on first iteration)
           if (!this.browser || !this.browser.isConnected()) {
             await Logger.info(`Browser not connected, initializing...`, 'county-scraper');
             await this.cleanup();
             await this.initialize();
           }
           
-          // Create new page for each lien to avoid frame detachment
-          if (recordPage) {
-            try { await recordPage.close(); } catch (e) {}
+          // Reuse the same page for all liens or create one if needed
+          if (!recordPage) {
+            // Create new page only if we don't have one
+            recordPage = await this.browser!.newPage();
+            pageCreated = true;
+            await Logger.info(`🔄 Created new page for processing liens`, 'county-scraper');
+          } else {
+            // Try to reuse existing page - just navigate to blank to clear state
+            try {
+              await recordPage.goto('about:blank', { timeout: 5000 });
+            } catch (e) {
+              // If page is broken, create a new one
+              await Logger.info(`⚠️ Page broken, creating new one`, 'county-scraper');
+              try { await recordPage.close(); } catch (e) {}
+              recordPage = await this.browser!.newPage();
+            }
           }
-          
-          recordPage = await this.browser!.newPage();
-          pageCreated = true;
           
           // Small delay between liens
           if (i > 0) {
@@ -698,136 +726,15 @@ export class PuppeteerCountyScraper extends CountyScraper {
           
           let actualPdfUrl: string = '';
           
+          // Skip PDF page navigation entirely to prevent frame detachment
+          // Use direct PDF URL pattern which is deterministic and always works
+          actualPdfUrl = `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${recordingNumber}.pdf`;
+          
           if (pdfPageLink) {
-            await Logger.info(`📎 Found Pages column link: ${pdfPageLink}`, 'county-scraper');
-            
-            // Create a new page for PDF navigation to avoid detached frame errors
-            let pdfPage: Page | null = null;
-            
-            try {
-              pdfPage = await this.browser!.newPage();
-              
-              // Navigate to the page link to get the actual PDF
-              const pdfResponse = await pdfPage.goto(pdfPageLink, { 
-                waitUntil: 'networkidle2',
-                timeout: 30000 
-              });
-            
-              // Wait a bit for the PDF to be generated/loaded
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              
-              // Check if we need to reload (sometimes PDFs need a refresh to load)
-              let contentType = pdfResponse?.headers()['content-type'] || '';
-              let reloadAttempts = 0;
-              const maxReloads = 5;
-              
-              // Keep reloading until we get a PDF or hit max attempts
-              while (!contentType.includes('pdf') && reloadAttempts < maxReloads) {
-                reloadAttempts++;
-                await Logger.info(`🔄 Attempt ${reloadAttempts}/${maxReloads}: Got ${contentType || 'unknown'} response, refreshing to get PDF...`, 'county-scraper');
-                
-                // Wait before reload (exponential backoff)
-                await new Promise(resolve => setTimeout(resolve, 1000 * reloadAttempts));
-                
-                // Reload the page
-                const reloadResponse = await pdfPage.reload({ waitUntil: 'networkidle2', timeout: 30000 });
-                
-                // Check if we have a PDF now
-                contentType = reloadResponse?.headers()['content-type'] || '';
-                
-                // Also check if the URL indicates a PDF
-                const currentUrl = pdfPage.url();
-                if (currentUrl.includes('.pdf')) {
-                  // Try to get the actual response
-                  const pageContent = await pdfPage.evaluate(() => {
-                    // Check if this is actually a PDF by looking at the document
-                    const isPdf = document.contentType === 'application/pdf' || 
-                                  window.location.href.includes('.pdf');
-                    return {
-                      url: window.location.href,
-                      isPdf: isPdf,
-                      contentType: document.contentType,
-                      bodyText: document.body ? document.body.innerText.substring(0, 100) : ''
-                    };
-                  });
-                  
-                  if (pageContent.isPdf || !pageContent.bodyText.includes('<!DOCTYPE')) {
-                    actualPdfUrl = currentUrl;
-                    await Logger.info(`✅ Successfully loaded PDF after ${reloadAttempts} reload(s): ${actualPdfUrl}`, 'county-scraper');
-                    contentType = 'application/pdf'; // Force it to be treated as PDF
-                  break;
-                }
-              }
-            }
-            
-              if (reloadAttempts >= maxReloads) {
-                await Logger.info(`❌ Failed to load PDF after ${maxReloads} refresh attempts`, 'county-scraper');
-              }
-              
-              if (contentType.includes('pdf') || pdfPage.url().includes('.pdf')) {
-                // Direct PDF response
-                actualPdfUrl = pdfPage.url();
-                await Logger.info(`📄 Navigated directly to PDF: ${actualPdfUrl}`, 'county-scraper');
-              } else {
-                // Might be a viewer page, look for the actual PDF URL
-                const viewerPdfUrl = await pdfPage.evaluate(() => {
-                // Check for PDF in iframe
-                const iframe = document.querySelector('iframe');
-                if (iframe?.src) {
-                  return iframe.src;
-                }
-                
-                // Check for embed or object tags
-                const embed = document.querySelector('embed');
-                if (embed?.src) {
-                  return embed.src;
-                }
-                
-                const object = document.querySelector('object');
-                if (object?.data) {
-                  return object.data;
-                }
-                
-                // Look for any PDF links on the page
-                const links = document.querySelectorAll('a');
-                for (const link of Array.from(links)) {
-                  const href = link.getAttribute('href');
-                  if (href && href.includes('.pdf')) {
-                    return href.startsWith('http') ? href : `https://legacy.recorder.maricopa.gov${href}`;
-                  }
-                }
-                
-                return null;
-              });
-              
-                if (viewerPdfUrl) {
-                  actualPdfUrl = viewerPdfUrl;
-                  await Logger.info(`📄 Found PDF URL in viewer: ${actualPdfUrl}`, 'county-scraper');
-                } else {
-                  // Use current URL if it might be the PDF
-                  actualPdfUrl = pdfPage.url();
-                  await Logger.info(`📄 Using current page URL: ${actualPdfUrl}`, 'county-scraper');
-                }
-              }
-            } catch (pdfError) {
-              await Logger.error(`Error processing PDF page for ${recordingNumber}: ${pdfError}`, 'county-scraper');
-              // Use fallback URL if PDF page processing fails
-              actualPdfUrl = `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${recordingNumber}.pdf`;
-              await Logger.info(`Using fallback PDF URL after error: ${actualPdfUrl}`, 'county-scraper');
-            } finally {
-              // Always close the PDF page to avoid memory leaks
-              if (pdfPage) {
-                try {
-                  await pdfPage.close();
-                } catch (closeError) {
-                  // Ignore close errors
-                }
-              }
-            }
+            await Logger.info(`📎 Found Pages column link: ${pdfPageLink} (skipping navigation to prevent frame detachment)`, 'county-scraper');
+            await Logger.info(`🔗 Using direct PDF URL instead: ${actualPdfUrl}`, 'county-scraper');
           } else {
-            // Fallback to direct PDF URL if Pages link not found
-            actualPdfUrl = `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${recordingNumber}.pdf`;
-            await Logger.info(`🔗 No Pages link found, using direct PDF URL: ${actualPdfUrl}`, 'county-scraper');
+            await Logger.info(`🔗 Using direct PDF URL: ${actualPdfUrl}`, 'county-scraper');
           }
           
           // Log the detail page for reference
