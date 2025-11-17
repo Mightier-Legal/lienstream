@@ -116,55 +116,170 @@ export class PuppeteerCountyScraper extends CountyScraper {
         await Logger.info(`Direct fetch failed: ${fetchError}`, 'county-scraper');
       }
       
-      // If direct URL fails and we have a page, try to extract the actual PDF URL from the viewer page
-      if (page && pdfUrl.includes('unofficialpdfdocs.aspx')) {
+      // If direct URL fails, try to extract the actual PDF URL from the viewer page
+      // Create a fresh new page specifically for this PDF extraction to avoid frame detachment
+      if (this.browser && pdfUrl.includes('unofficialpdfdocs.aspx')) {
+        let newPage: Page | null = null;
         try {
           await Logger.info(`🔍 Extracting actual PDF URL from viewer page: ${pdfUrl}`, 'county-scraper');
           
+          // Create a fresh new page for this PDF extraction
+          newPage = await this.browser.newPage();
+          await newPage.setViewport({ width: 1920, height: 1080 });
+          
+          // Set up network-level PDF capture BEFORE navigation
+          let capturedPdfBuffer: Buffer | null = null;
+          
+          // Listen for PDF responses during navigation
+          const responseListener = async (response: any) => {
+            try {
+              const contentType = response.headers()['content-type'] || '';
+              const responseUrl = response.url();
+              
+              // Check if this is a PDF response
+              if (contentType.includes('application/pdf') || 
+                  responseUrl.toLowerCase().endsWith('.pdf') ||
+                  responseUrl.includes('PrintDoc.aspx') ||
+                  responseUrl.includes('ShowPDF.aspx')) {
+                
+                await Logger.info(`🎯 Detected PDF response from: ${responseUrl}`, 'county-scraper');
+                
+                // Try to buffer immediately while page is still alive
+                try {
+                  // Get buffer quickly before page closes
+                  const buffer = await Promise.race([
+                    response.buffer().catch(() => null),
+                    new Promise<Buffer | null>(resolve => setTimeout(() => resolve(null), 500))
+                  ]);
+                  
+                  // Verify it's actually a PDF
+                  if (buffer && buffer.length > 0) {
+                    const header = buffer.toString('utf8', 0, 5);
+                    if (header.startsWith('%PDF')) {
+                      capturedPdfBuffer = buffer;
+                      await Logger.success(`📦 Captured PDF from network (${buffer.length} bytes)`, 'county-scraper');
+                    }
+                  }
+                } catch (bufferError) {
+                  // If direct buffer fails, try fetching URL directly
+                  if (!capturedPdfBuffer && responseUrl.endsWith('.pdf')) {
+                    try {
+                      const directResponse = await fetch(responseUrl);
+                      if (directResponse.ok) {
+                        const arrayBuffer = await directResponse.arrayBuffer();
+                        const buffer = Buffer.from(arrayBuffer);
+                        if (buffer.length > 0 && buffer.toString('utf8', 0, 5).startsWith('%PDF')) {
+                          capturedPdfBuffer = buffer;
+                          await Logger.success(`📦 Captured PDF via direct fetch (${buffer.length} bytes)`, 'county-scraper');
+                        }
+                      }
+                    } catch (fetchError) {
+                      await Logger.info(`Could not fetch PDF directly: ${fetchError}`, 'county-scraper');
+                    }
+                  }
+                }
+              }
+            } catch (responseError) {
+              // Ignore response handling errors
+            }
+          };
+          
+          newPage.on('response', responseListener);
+          
           // Navigate to the PDF viewer page
-          await page.goto(pdfUrl, { waitUntil: 'networkidle0', timeout: 30000 });
-          await page.waitForTimeout(2000); // Wait for page to fully load
+          try {
+            await newPage.goto(pdfUrl, { 
+              waitUntil: 'domcontentloaded', 
+              timeout: 30000 
+            });
+            
+            // Give time for any redirects or PDF loads
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+          } catch (navError: any) {
+            // Navigation might fail if page redirects to PDF directly - that's OK if we captured it
+            if (capturedPdfBuffer) {
+              await Logger.info(`Navigation failed but PDF was captured from network`, 'county-scraper');
+            } else {
+              await Logger.info(`Navigation error: ${navError.message}`, 'county-scraper');
+            }
+          }
+          
+          // If we captured a PDF from network, return it immediately
+          if (capturedPdfBuffer) {
+            await Logger.success(`✅ Downloaded PDF (${capturedPdfBuffer.length} bytes) from network capture`, 'county-scraper');
+            return capturedPdfBuffer;
+          }
+          
+          // Otherwise, try DOM-based extraction as before
+          try {
+            await newPage.waitForSelector('iframe#viewer', { timeout: 3000 });
+            await Logger.info(`Found iframe#viewer element`, 'county-scraper');
+          } catch (e) {
+            await Logger.info(`No iframe#viewer found, checking for other PDF elements`, 'county-scraper');
+          }
           
           // Try multiple methods to find the PDF URL
-          const actualPdfUrl = await page.evaluate(() => {
-            // Method 1: Look for iframe with PDF
-            const iframe = document.querySelector('iframe');
+          const actualPdfUrl = await newPage.evaluate(() => {
+            // Method 1: Look for iframe#viewer specifically (Maricopa pattern)
+            const viewerIframe = document.querySelector('iframe#viewer') as HTMLIFrameElement;
+            if (viewerIframe && viewerIframe.src) {
+              console.log(`Found iframe#viewer with src: ${viewerIframe.src}`);
+              return viewerIframe.src;
+            }
+            
+            // Method 2: Look for any iframe with PDF-related src
+            const iframe = document.querySelector('iframe') as HTMLIFrameElement;
             if (iframe && iframe.src) {
+              console.log(`Found iframe with src: ${iframe.src}`);
               return iframe.src;
             }
             
-            // Method 2: Look for embed element
-            const embed = document.querySelector('embed');
+            // Method 3: Look for embed element
+            const embed = document.querySelector('embed') as HTMLEmbedElement;
             if (embed && embed.src) {
+              console.log(`Found embed with src: ${embed.src}`);
               return embed.src;
             }
             
-            // Method 3: Look for object element
-            const object = document.querySelector('object');
+            // Method 4: Look for object element
+            const object = document.querySelector('object') as HTMLObjectElement;
             if (object && object.data) {
+              console.log(`Found object with data: ${object.data}`);
               return object.data;
             }
             
-            // Method 4: Look for any link containing .pdf
+            // Method 5: Look for any link containing .pdf
             const pdfLinks = Array.from(document.querySelectorAll('a')).filter(a => 
               a.href && a.href.toLowerCase().includes('.pdf')
             );
             if (pdfLinks.length > 0) {
+              console.log(`Found PDF link: ${pdfLinks[0].href}`);
               return pdfLinks[0].href;
             }
             
+            console.log('No PDF URL found in viewer page');
             return null;
           });
           
           if (actualPdfUrl) {
             await Logger.info(`📎 Found actual PDF URL: ${actualPdfUrl}`, 'county-scraper');
             
+            // Make the URL absolute if it's relative
+            let fullPdfUrl = actualPdfUrl;
+            if (actualPdfUrl.startsWith('/')) {
+              fullPdfUrl = `https://legacy.recorder.maricopa.gov${actualPdfUrl}`;
+            } else if (!actualPdfUrl.startsWith('http')) {
+              fullPdfUrl = `https://legacy.recorder.maricopa.gov/${actualPdfUrl}`;
+            }
+            
             // Download from the actual URL
-            const response = await fetch(actualPdfUrl, {
+            const response = await fetch(fullPdfUrl, {
               headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
                 'Accept': 'application/pdf,*/*',
-                'Referer': 'https://legacy.recorder.maricopa.gov/'
+                'Referer': pdfUrl,
+                'Origin': 'https://legacy.recorder.maricopa.gov'
               }
             });
             
@@ -177,13 +292,26 @@ export class PuppeteerCountyScraper extends CountyScraper {
               if (header.startsWith('%PDF')) {
                 await Logger.success(`✅ Downloaded PDF (${buffer.length} bytes) from extracted URL`, 'county-scraper');
                 return buffer;
+              } else {
+                await Logger.info(`Downloaded content is not a PDF (header: ${header})`, 'county-scraper');
               }
+            } else {
+              await Logger.info(`Failed to download from extracted URL: HTTP ${response.status}`, 'county-scraper');
             }
           } else {
             await Logger.info(`Could not extract PDF URL from viewer page`, 'county-scraper');
           }
         } catch (error) {
           await Logger.info(`Failed to extract PDF from viewer page: ${error}`, 'county-scraper');
+        } finally {
+          // Always close the new page we created
+          if (newPage) {
+            try {
+              await newPage.close();
+            } catch (e) {
+              // Ignore close errors
+            }
+          }
         }
       }
       
