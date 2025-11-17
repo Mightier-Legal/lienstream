@@ -86,12 +86,14 @@ export class PuppeteerCountyScraper extends CountyScraper {
     try {
       await Logger.info(`📥 Downloading PDF from: ${pdfUrl}`, 'county-scraper');
       
-      // First try direct fetch (fastest method)
+      // Use direct Node.js fetch as primary method (most reliable)
       try {
         const response = await fetch(pdfUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
-            'Accept': 'application/pdf,*/*'
+            'Accept': 'application/pdf,*/*',
+            'Referer': 'https://legacy.recorder.maricopa.gov/',
+            'Origin': 'https://legacy.recorder.maricopa.gov'
           }
         });
         
@@ -107,52 +109,17 @@ export class PuppeteerCountyScraper extends CountyScraper {
           } else {
             await Logger.info(`⚠️ Downloaded file is not a PDF (starts with: ${header})`, 'county-scraper');
           }
+        } else {
+          await Logger.info(`Direct fetch returned HTTP ${response.status}`, 'county-scraper');
         }
       } catch (fetchError) {
         await Logger.info(`Direct fetch failed: ${fetchError}`, 'county-scraper');
       }
       
-      // If direct fetch fails and we have a browser page, download through page context
-      // This avoids navigating away from current page and prevents frame detachment
-      if (page) {
-        try {
-          const pdfData = await page.evaluate(async (url: string) => {
-            try {
-              const response = await fetch(url, {
-                headers: {
-                  'Accept': 'application/pdf,*/*'
-                }
-              });
-              
-              if (response.ok) {
-                const arrayBuffer = await response.arrayBuffer();
-                // Convert to base64 for transfer from browser context
-                const uint8Array = new Uint8Array(arrayBuffer);
-                const base64 = btoa(Array.from(uint8Array).map(b => String.fromCharCode(b)).join(''));
-                return { success: true, data: base64, size: arrayBuffer.byteLength };
-              }
-              return { success: false, error: `HTTP ${response.status}` };
-            } catch (error: any) {
-              return { success: false, error: error.message };
-            }
-          }, pdfUrl);
-          
-          if (pdfData.success && pdfData.data) {
-            const buffer = Buffer.from(pdfData.data, 'base64');
-            
-            // Check if it's a PDF
-            const header = buffer.toString('utf8', 0, 5);
-            if (header.startsWith('%PDF')) {
-              await Logger.success(`✅ Downloaded PDF via browser context (${pdfData.size} bytes)`, 'county-scraper');
-              return buffer;
-            }
-          } else {
-            await Logger.info(`Browser context download failed: ${pdfData.error}`, 'county-scraper');
-          }
-        } catch (evalError) {
-          await Logger.info(`Page evaluate download failed: ${evalError}`, 'county-scraper');
-        }
-      }
+      // Browser context fetch disabled due to CORS restrictions
+      // The direct Node.js fetch above is more reliable and doesn't have CORS issues
+      // If you need to re-enable browser context downloads, ensure the page has navigated
+      // to the recorder site first to establish proper session/cookies
       
       return null;
     } catch (error) {
