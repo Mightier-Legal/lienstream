@@ -84,11 +84,13 @@ export class PuppeteerCountyScraper extends CountyScraper {
 
   async downloadPdf(pdfUrl: string, recordingNumber: string, page?: Page): Promise<Buffer | null> {
     try {
-      await Logger.info(`📥 Downloading PDF from: ${pdfUrl}`, 'county-scraper');
+      await Logger.info(`📥 Attempting to download PDF for recording ${recordingNumber}`, 'county-scraper');
       
-      // Use direct Node.js fetch as primary method (most reliable)
+      // First, try the direct URL pattern (works for some recording numbers)
+      const directPdfUrl = `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${recordingNumber}.pdf`;
+      
       try {
-        const response = await fetch(pdfUrl, {
+        const response = await fetch(directPdfUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
             'Accept': 'application/pdf,*/*',
@@ -104,22 +106,86 @@ export class PuppeteerCountyScraper extends CountyScraper {
           // Check if it's actually a PDF (starts with %PDF)
           const header = buffer.toString('utf8', 0, 5);
           if (header.startsWith('%PDF')) {
-            await Logger.success(`✅ Downloaded PDF (${buffer.length} bytes): ${pdfUrl}`, 'county-scraper');
+            await Logger.success(`✅ Downloaded PDF (${buffer.length} bytes) from direct URL: ${directPdfUrl}`, 'county-scraper');
             return buffer;
-          } else {
-            await Logger.info(`⚠️ Downloaded file is not a PDF (starts with: ${header})`, 'county-scraper');
           }
-        } else {
-          await Logger.info(`Direct fetch returned HTTP ${response.status}`, 'county-scraper');
+        } else if (response.status === 404) {
+          await Logger.info(`Direct URL returned 404, will try viewer page extraction`, 'county-scraper');
         }
       } catch (fetchError) {
         await Logger.info(`Direct fetch failed: ${fetchError}`, 'county-scraper');
       }
       
-      // Browser context fetch disabled due to CORS restrictions
-      // The direct Node.js fetch above is more reliable and doesn't have CORS issues
-      // If you need to re-enable browser context downloads, ensure the page has navigated
-      // to the recorder site first to establish proper session/cookies
+      // If direct URL fails and we have a page, try to extract the actual PDF URL from the viewer page
+      if (page && pdfUrl.includes('unofficialpdfdocs.aspx')) {
+        try {
+          await Logger.info(`🔍 Extracting actual PDF URL from viewer page: ${pdfUrl}`, 'county-scraper');
+          
+          // Navigate to the PDF viewer page
+          await page.goto(pdfUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+          await page.waitForTimeout(2000); // Wait for page to fully load
+          
+          // Try multiple methods to find the PDF URL
+          const actualPdfUrl = await page.evaluate(() => {
+            // Method 1: Look for iframe with PDF
+            const iframe = document.querySelector('iframe');
+            if (iframe && iframe.src) {
+              return iframe.src;
+            }
+            
+            // Method 2: Look for embed element
+            const embed = document.querySelector('embed');
+            if (embed && embed.src) {
+              return embed.src;
+            }
+            
+            // Method 3: Look for object element
+            const object = document.querySelector('object');
+            if (object && object.data) {
+              return object.data;
+            }
+            
+            // Method 4: Look for any link containing .pdf
+            const pdfLinks = Array.from(document.querySelectorAll('a')).filter(a => 
+              a.href && a.href.toLowerCase().includes('.pdf')
+            );
+            if (pdfLinks.length > 0) {
+              return pdfLinks[0].href;
+            }
+            
+            return null;
+          });
+          
+          if (actualPdfUrl) {
+            await Logger.info(`📎 Found actual PDF URL: ${actualPdfUrl}`, 'county-scraper');
+            
+            // Download from the actual URL
+            const response = await fetch(actualPdfUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+                'Accept': 'application/pdf,*/*',
+                'Referer': 'https://legacy.recorder.maricopa.gov/'
+              }
+            });
+            
+            if (response.ok) {
+              const arrayBuffer = await response.arrayBuffer();
+              const buffer = Buffer.from(arrayBuffer);
+              
+              // Check if it's actually a PDF
+              const header = buffer.toString('utf8', 0, 5);
+              if (header.startsWith('%PDF')) {
+                await Logger.success(`✅ Downloaded PDF (${buffer.length} bytes) from extracted URL`, 'county-scraper');
+                return buffer;
+              }
+            }
+          } else {
+            await Logger.info(`Could not extract PDF URL from viewer page`, 'county-scraper');
+          }
+        } catch (error) {
+          await Logger.info(`Failed to extract PDF from viewer page: ${error}`, 'county-scraper');
+        }
+      }
       
       return null;
     } catch (error) {
@@ -693,21 +759,21 @@ export class PuppeteerCountyScraper extends CountyScraper {
           
           let actualPdfUrl: string = '';
           
-          // Skip PDF page navigation entirely to prevent frame detachment
-          // Use direct PDF URL pattern which is deterministic and always works
-          actualPdfUrl = `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${recordingNumber}.pdf`;
-          
+          // Pass the viewer page URL to downloadPdf - it will try direct URL first,
+          // then fallback to extracting from the viewer page if needed
           if (pdfPageLink) {
-            await Logger.info(`📎 Found Pages column link: ${pdfPageLink} (skipping navigation to prevent frame detachment)`, 'county-scraper');
-            await Logger.info(`🔗 Using direct PDF URL instead: ${actualPdfUrl}`, 'county-scraper');
+            await Logger.info(`📎 Found Pages column link: ${pdfPageLink}`, 'county-scraper');
+            actualPdfUrl = pdfPageLink; // Use the viewer page URL
           } else {
+            // Fallback to direct URL if no viewer page link found
+            actualPdfUrl = `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${recordingNumber}.pdf`;
             await Logger.info(`🔗 Using direct PDF URL: ${actualPdfUrl}`, 'county-scraper');
           }
           
           // Log the detail page for reference
           await Logger.info(`📄 Document ${recordingNumber}: Detail page: ${docUrl}`, 'county-scraper');
           
-          // Download the actual PDF
+          // Download the actual PDF - the method will handle both direct URLs and viewer pages
           const pdfBuffer = await this.downloadPdf(actualPdfUrl, recordingNumber, recordPage);
           
           if (pdfBuffer) {
