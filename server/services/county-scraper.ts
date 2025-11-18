@@ -130,6 +130,9 @@ export class PuppeteerCountyScraper extends CountyScraper {
           // Set up network-level PDF capture BEFORE navigation
           let capturedPdfBuffer: Buffer | null = null;
           
+          // Store detected PDF URL for later fetch
+          let detectedPdfUrl: string | null = null;
+          
           // Listen for PDF responses during navigation
           const responseListener = async (response: any) => {
             try {
@@ -144,12 +147,17 @@ export class PuppeteerCountyScraper extends CountyScraper {
                 
                 await Logger.info(`🎯 Detected PDF response from: ${responseUrl}`, 'county-scraper');
                 
-                // Try to buffer immediately while page is still alive
+                // Store the PDF URL for fallback
+                if (responseUrl.endsWith('.pdf')) {
+                  detectedPdfUrl = responseUrl;
+                }
+                
+                // Try to buffer immediately with very short timeout
                 try {
-                  // Get buffer quickly before page closes
+                  // Get buffer quickly before page closes - much shorter timeout
                   const buffer = await Promise.race([
                     response.buffer().catch(() => null),
-                    new Promise<Buffer | null>(resolve => setTimeout(() => resolve(null), 500))
+                    new Promise<Buffer | null>(resolve => setTimeout(() => resolve(null), 100))
                   ]);
                   
                   // Verify it's actually a PDF
@@ -209,6 +217,24 @@ export class PuppeteerCountyScraper extends CountyScraper {
           if (capturedPdfBuffer) {
             await Logger.success(`✅ Downloaded PDF (${capturedPdfBuffer.length} bytes) from network capture`, 'county-scraper');
             return capturedPdfBuffer;
+          }
+          
+          // If we detected a PDF URL but couldn't buffer it, try fetching it directly
+          if (!capturedPdfBuffer && detectedPdfUrl) {
+            await Logger.info(`📥 Attempting to fetch detected PDF URL: ${detectedPdfUrl}`, 'county-scraper');
+            try {
+              const directResponse = await fetch(detectedPdfUrl);
+              if (directResponse.ok) {
+                const arrayBuffer = await directResponse.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+                if (buffer.length > 0 && buffer.toString('utf8', 0, 5).startsWith('%PDF')) {
+                  await Logger.success(`✅ Downloaded PDF (${buffer.length} bytes) via direct fetch of detected URL`, 'county-scraper');
+                  return buffer;
+                }
+              }
+            } catch (fetchError) {
+              await Logger.info(`Could not fetch detected PDF URL: ${fetchError}`, 'county-scraper');
+            }
           }
           
           // Otherwise, try DOM-based extraction as before
