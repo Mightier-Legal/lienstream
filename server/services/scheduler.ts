@@ -356,21 +356,68 @@ export class SchedulerService {
         }
       }
 
-      // Step 3: Get all scraped liens for Airtable sync
+      // Step 3: Get all scraped liens and check for PDF failures
       let allLiens: any[] = [];
+      let liensWithPDFs: any[] = [];
+      let failedLiens: any[] = [];
+      
       for (const scraper of allScrapers) {
         if (scraper.liens && scraper.liens.length > 0) {
           allLiens = allLiens.concat(scraper.liens);
         }
       }
-      totalLiensProcessed = allLiens.length;
+      
+      // Separate liens with successful PDFs from those without
+      for (const lien of allLiens) {
+        if (lien.documentUrl && lien.documentUrl.includes('/api/pdf/')) {
+          // Successfully downloaded PDF (local URL)
+          liensWithPDFs.push(lien);
+        } else {
+          // Failed to download PDF
+          failedLiens.push(lien);
+          await Logger.warning(`PDF download failed for lien ${lien.recordingNumber}`, 'scheduler');
+        }
+      }
+      
+      totalLiensProcessed = liensWithPDFs.length;
 
-      // Step 4: Sync to Airtable
-      if (allLiens.length > 0) {
-        await Logger.info(`Syncing ${allLiens.length} liens to Airtable`, 'scheduler');
+      // Step 4: Check if we have 100% success rate before syncing to Airtable
+      if (failedLiens.length > 0) {
+        // HALT: Do not push to Airtable if any PDFs failed
+        await Logger.error(
+          `HALTING Airtable sync: ${failedLiens.length} of ${allLiens.length} liens failed PDF download. ` +
+          `Failed liens: ${failedLiens.map((l: any) => l.recordingNumber).join(', ')}`,
+          'scheduler'
+        );
+        
+        // Update automation run with partial failure status
+        await storage.updateAutomationRun(runId, {
+          status: 'needs_review',
+          endTime: new Date(),
+          liensFound: totalLiensFound,
+          liensProcessed: 0, // 0 because we didn't push to Airtable
+          errorMessage: `${failedLiens.length} liens failed PDF download - Airtable sync halted pending review`
+        });
+        
+        // Store failed liens for manual review
+        await storage.setFailedLiens(failedLiens);
+        
+        await Logger.warning(
+          `Automation needs review: Found ${allLiens.length} liens, ${liensWithPDFs.length} with PDFs, ` +
+          `${failedLiens.length} without. Airtable sync HALTED. Manual review required.`,
+          'scheduler'
+        );
+        
+        // Exit early without pushing to Airtable
+        return;
+      }
+      
+      // Only sync to Airtable if ALL PDFs were successfully downloaded
+      if (liensWithPDFs.length > 0) {
+        await Logger.info(`All ${liensWithPDFs.length} liens have PDFs - proceeding with Airtable sync`, 'scheduler');
         
         // Transform liens to match Airtable service expectations
-        const liensForAirtable = allLiens.map((lien: any) => ({
+        const liensForAirtable = liensWithPDFs.map((lien: any) => ({
           recordingNumber: lien.recordingNumber,
           recordingDate: lien.recordingDate,
           documentUrl: lien.documentUrl,

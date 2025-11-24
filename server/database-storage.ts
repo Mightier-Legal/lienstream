@@ -422,4 +422,15 @@ export class DatabaseStorage implements IStorage {
       console.error('[Storage] Error initializing counties:', error);
     }
   }
+  
+  // Failed liens tracking (storing in memory for now, can be persisted to DB if needed)
+  private failedLiens: any[] = [];
+  
+  async setFailedLiens(liens: any[]): Promise<void> {
+    this.failedLiens = liens;
+  }
+
+  async getFailedLiens(): Promise<any[]> {
+    return this.failedLiens;
+  }
 }

@@ -65,6 +65,10 @@ export interface IStorage {
     mailersSent: number;
     activeLeads: number;
   }>;
+  
+  // Failed liens tracking for manual review
+  setFailedLiens(liens: any[]): Promise<void>;
+  getFailedLiens(): Promise<any[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -75,6 +79,7 @@ export class MemStorage implements IStorage {
   private counties: Map<string, County>;
   private countyRuns: Map<string, CountyRun>;
   private scheduleConfig: { cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date } | null = null;
+  private failedLiens: any[] = [];
 
   constructor() {
     this.users = new Map();
@@ -476,6 +481,15 @@ export class MemStorage implements IStorage {
   async getDefaultCounty(): Promise<County> {
     const counties = await this.getActiveCounties();
     return counties.find(c => c.name === "Maricopa County") || counties[0];
+  }
+  
+  // Failed liens tracking
+  async setFailedLiens(liens: any[]): Promise<void> {
+    this.failedLiens = liens;
+  }
+
+  async getFailedLiens(): Promise<any[]> {
+    return this.failedLiens;
   }
 }
 
