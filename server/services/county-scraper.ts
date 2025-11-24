@@ -615,40 +615,96 @@ export class PuppeteerCountyScraper extends CountyScraper {
       }
       
       // Now fill out and submit the search form
-      await Logger.info(`📝 Filling out search form with dates and document type`, 'county-scraper');
+      await Logger.info(`📝 Looking for search form iframe...`, 'county-scraper');
       
       try {
-        // Wait for form elements to be present
-        await page.waitForSelector('#txbRecBegDate', { timeout: 10000 });
+        // Wait for frames to load
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Clear and fill start date
-        await page.evaluate((start) => {
-          const startInput = document.querySelector('#txbRecBegDate') as HTMLInputElement;
-          if (startInput) {
-            startInput.value = start;
+        // Find the search form iframe
+        const frames = page.frames();
+        await Logger.info(`📋 Found ${frames.length} frames on page`, 'county-scraper');
+        
+        // Log all frame URLs for debugging
+        frames.forEach((frame, index) => {
+          Logger.info(`Frame ${index}: ${frame.url()}`, 'county-scraper');
+        });
+        
+        const searchFrame = frames.find(f => 
+          f.url()?.includes('GetRecDataRecInt') || 
+          f.url()?.includes('search') ||
+          f.name()?.includes('search')
+        );
+        
+        if (!searchFrame) {
+          throw new Error('Search form iframe not found');
+        }
+        
+        await Logger.info(`🔍 Found search form frame: ${searchFrame.url()}`, 'county-scraper');
+        
+        // Wait for form elements to be present in the iframe
+        await searchFrame.waitForSelector('input[id*="RecBegDate"], input[id*="txtRecBegDate"], #txtRecBegDate', { timeout: 10000 });
+        
+        // Fill the form in the iframe context
+        await searchFrame.evaluate((startDate, endDate) => {
+          // Try multiple possible selector patterns
+          const startSelectors = ['#txtRecBegDate', '#txbRecBegDate', 'input[id*="RecBegDate"]'];
+          const endSelectors = ['#txtRecEndDate', '#txbRecEndDate', 'input[id*="RecEndDate"]'];
+          
+          let startInput: HTMLInputElement | null = null;
+          let endInput: HTMLInputElement | null = null;
+          
+          // Find start date input
+          for (const selector of startSelectors) {
+            startInput = document.querySelector(selector) as HTMLInputElement;
+            if (startInput) break;
           }
-        }, `${startMonth}/${startDay}/${startYear}`);
-        
-        // Clear and fill end date
-        await page.evaluate((end) => {
-          const endInput = document.querySelector('#txbRecEndDate') as HTMLInputElement;
-          if (endInput) {
-            endInput.value = end;
+          
+          // Find end date input
+          for (const selector of endSelectors) {
+            endInput = document.querySelector(selector) as HTMLInputElement;
+            if (endInput) break;
           }
-        }, `${endMonth}/${endDay}/${endYear}`);
-        
-        // Select HL (Medical Lien) document type
-        await page.select('#ddlDocType1', 'HL');
+          
+          if (startInput) startInput.value = startDate;
+          if (endInput) endInput.value = endDate;
+          
+          // Try to select document type
+          const docTypeSelectors = ['#ddlDocType', '#ddlDocType1', 'select[id*="DocType"]'];
+          for (const selector of docTypeSelectors) {
+            const docSelect = document.querySelector(selector) as HTMLSelectElement;
+            if (docSelect) {
+              // Find HL option
+              for (let i = 0; i < docSelect.options.length; i++) {
+                if (docSelect.options[i].value === 'HL') {
+                  docSelect.selectedIndex = i;
+                  break;
+                }
+              }
+              break;
+            }
+          }
+        }, `${startMonth}/${startDay}/${startYear}`, `${endMonth}/${endDay}/${endYear}`);
         
         await Logger.info(`✅ Form filled with dates and HL document type`, 'county-scraper');
         
         // Submit the form and wait for navigation
         await Logger.info(`🚀 Submitting search form...`, 'county-scraper');
         
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 60000 }),
-          page.click('#btnRecDataSubmit')
-        ]);
+        // Find and click submit button in iframe
+        await searchFrame.evaluate(() => {
+          const submitSelectors = ['#btnRecDataSubmit', 'input[type="submit"]', 'button[type="submit"]'];
+          for (const selector of submitSelectors) {
+            const submitBtn = document.querySelector(selector) as HTMLElement;
+            if (submitBtn) {
+              submitBtn.click();
+              break;
+            }
+          }
+        });
+        
+        // Wait for navigation
+        await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 60000 });
         
         await Logger.success(`✅ Search form submitted successfully`, 'county-scraper');
         
