@@ -220,6 +220,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Manual review endpoints for failed liens
+  app.get("/api/liens/failed", requireAuth, async (req, res) => {
+    try {
+      const failedLiens = await storage.getFailedLiens();
+      const count = failedLiens.length;
+      
+      res.json({
+        count,
+        liens: failedLiens,
+        message: count > 0 
+          ? `${count} lien(s) failed PDF download. Review and approve/reject Airtable sync.`
+          : 'No failed liens.'
+      });
+    } catch (error) {
+      await Logger.error(`Failed to fetch failed liens: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to fetch failed liens" });
+    }
+  });
+
+  // Approve Airtable sync despite PDF failures (manual override)
+  app.post("/api/liens/failed/approve", requireAuth, async (req, res) => {
+    try {
+      const failedLiens = await storage.getFailedLiens();
+      
+      if (failedLiens.length === 0) {
+        return res.json({ message: "No failed liens to process", success: true });
+      }
+      
+      await Logger.warning(`📋 Manual override: Approving ${failedLiens.length} liens for Airtable sync despite missing PDFs`, 'api');
+      
+      // Get all pending liens (successful PDFs)
+      const pendingLiens = await storage.getPendingLiens();
+      
+      if (pendingLiens.length === 0 && failedLiens.length === 0) {
+        return res.json({ message: "No liens to sync", success: false });
+      }
+      
+      // Import AirtableService
+      const airtableService = new AirtableService();
+      
+      // Prepare all liens for sync (both successful and failed)
+      const allLiens = [...pendingLiens, ...failedLiens];
+      const liensForAirtable = allLiens.map((lien: any) => ({
+        recordingNumber: lien.recordingNumber,
+        recordingDate: lien.recordDate || lien.recordingDate,
+        amount: lien.amount || '0',
+        debtorNames: lien.debtorNames || lien.debtorName || 'Unknown',
+        documentUrl: lien.documentUrl || null, // May be null for failed PDFs
+        countyId: '1', // Maricopa County
+        status: lien.documentUrl ? 'pending' : 'pdf_failed'
+      }));
+      
+      // Sync to Airtable in batches
+      const results = await airtableService.syncLiensToAirtable(liensForAirtable);
+      
+      // Update lien statuses
+      for (const lien of allLiens) {
+        await storage.updateLienStatus(lien.recordingNumber, 'synced');
+      }
+      
+      // Clear failed liens after successful sync
+      await storage.setFailedLiens([]);
+      
+      await Logger.success(`✅ Manual override complete: Synced ${allLiens.length} liens (${failedLiens.length} without PDFs)`, 'api');
+      
+      res.json({
+        success: true,
+        message: `Successfully synced ${allLiens.length} liens to Airtable (${failedLiens.length} without PDFs)`,
+        successfulPdfs: pendingLiens.length,
+        failedPdfs: failedLiens.length,
+        total: allLiens.length
+      });
+    } catch (error) {
+      await Logger.error(`Failed to approve and sync failed liens: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to approve and sync liens" });
+    }
+  });
+  
+  // Reject failed liens and clear them
+  app.post("/api/liens/failed/reject", requireAuth, async (req, res) => {
+    try {
+      const failedLiens = await storage.getFailedLiens();
+      const count = failedLiens.length;
+      
+      if (count === 0) {
+        return res.json({ message: "No failed liens to reject", success: true });
+      }
+      
+      await Logger.info(`🚫 Rejecting ${count} failed liens and clearing them`, 'api');
+      
+      // Clear failed liens
+      await storage.setFailedLiens([]);
+      
+      await Logger.success(`✅ Cleared ${count} failed liens`, 'api');
+      
+      res.json({
+        success: true,
+        message: `Rejected and cleared ${count} failed liens. No sync to Airtable.`,
+        count
+      });
+    } catch (error) {
+      await Logger.error(`Failed to reject failed liens: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to reject failed liens" });
+    }
+  });
+  
   // Bulk sync all pending liens to Airtable
   app.post("/api/airtable/sync-all", requireAuth, async (req, res) => {
     try {
