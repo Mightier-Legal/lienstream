@@ -82,6 +82,45 @@ export class PuppeteerCountyScraper extends CountyScraper {
   private browser: Browser | null = null;
   public liens: any[] = []; // Store liens for access by scheduler
 
+  // New retry wrapper with exponential backoff
+  async downloadPdfWithRetry(pdfUrl: string, recordingNumber: string, page?: Page): Promise<Buffer | null> {
+    const maxRetries = 3;
+    const baseDelay = 2000; // 2 seconds
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await Logger.info(`🔄 PDF download attempt ${attempt}/${maxRetries} for recording ${recordingNumber}`, 'county-scraper');
+        
+        // Call the existing complex downloadPdf method
+        const result = await this.downloadPdf(pdfUrl, recordingNumber, page);
+        
+        if (result) {
+          await Logger.success(`✅ PDF downloaded successfully on attempt ${attempt} for ${recordingNumber}`, 'county-scraper');
+          return result;
+        }
+        
+        // If no result and we have more retries, wait with exponential backoff
+        if (attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt - 1); // 2s, 4s, 8s
+          await Logger.warning(`⏱️ PDF download failed for ${recordingNumber}, waiting ${delay/1000}s before retry...`, 'county-scraper');
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      } catch (error) {
+        await Logger.error(`PDF download attempt ${attempt} failed with error: ${error}`, 'county-scraper');
+        
+        if (attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt - 1);
+          await Logger.warning(`⏱️ Waiting ${delay/1000}s before retry...`, 'county-scraper');
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    await Logger.error(`❌ All ${maxRetries} PDF download attempts failed for ${recordingNumber}`, 'county-scraper');
+    return null;
+  }
+
+  // Original downloadPdf method remains unchanged
   async downloadPdf(pdfUrl: string, recordingNumber: string, page?: Page): Promise<Buffer | null> {
     try {
       await Logger.info(`📥 Attempting to download PDF for recording ${recordingNumber}`, 'county-scraper');
@@ -927,8 +966,8 @@ export class PuppeteerCountyScraper extends CountyScraper {
           // Log the detail page for reference
           await Logger.info(`📄 Document ${recordingNumber}: Detail page: ${docUrl}`, 'county-scraper');
           
-          // Download the actual PDF - the method will handle both direct URLs and viewer pages
-          const pdfBuffer = await this.downloadPdf(actualPdfUrl, recordingNumber, recordPage);
+          // Download the actual PDF with retry logic - the method will handle both direct URLs and viewer pages
+          const pdfBuffer = await this.downloadPdfWithRetry(actualPdfUrl, recordingNumber, recordPage);
           
           if (pdfBuffer) {
             // Store PDF locally and get serving URL
