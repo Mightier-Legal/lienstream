@@ -553,12 +553,11 @@ export class PuppeteerCountyScraper extends CountyScraper {
       const endDay = endDate.getDate();
       const endYear = endDate.getFullYear();
       
-      // Build the direct URL with date range and increased max results
-      const directUrl = `https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRecentPgDn.aspx?rec=0&suf=&nm=&bdt=${startMonth}%2F${startDay}%2F${startYear}&edt=${endMonth}%2F${endDay}%2F${endYear}&cde=HL&max=500&res=True&doc1=HL&doc2=&doc3=&doc4=&doc5=`;
+      // Navigate to search form page first (required for iframe results)
+      const searchFormUrl = 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRec.aspx';
       
       await Logger.info(`📅 Searching for medical liens from ${startMonth}/${startDay}/${startYear} to ${endMonth}/${endDay}/${endYear}`, 'county-scraper');
-      await Logger.info(`🔗 Navigating directly to results page`, 'county-scraper');
-      await Logger.info(`🔗 Full URL: ${directUrl}`, 'county-scraper');
+      await Logger.info(`🔗 Navigating to search form page`, 'county-scraper');
       
       // Navigate with retry logic and extended timeout for production environments
       let navigationSuccess = false;
@@ -568,14 +567,14 @@ export class PuppeteerCountyScraper extends CountyScraper {
       while (!navigationSuccess && navigationAttempts < maxNavigationAttempts) {
         navigationAttempts++;
         try {
-          await Logger.info(`🌐 Navigation attempt ${navigationAttempts}/${maxNavigationAttempts} to Maricopa County website...`, 'county-scraper');
+          await Logger.info(`🌐 Navigation attempt ${navigationAttempts}/${maxNavigationAttempts} to Maricopa County search form...`, 'county-scraper');
           
           // Set page timeout for production environments
           page.setDefaultNavigationTimeout(300000); // 5 minutes
           page.setDefaultTimeout(300000); // 5 minutes for all operations
           
-          await page.goto(directUrl, { 
-            waitUntil: 'domcontentloaded', // Less strict than networkidle2
+          await page.goto(searchFormUrl, { 
+            waitUntil: 'networkidle0', // Wait for network to be idle
             timeout: 300000 // 5 minutes for production networks
           });
           
@@ -615,11 +614,54 @@ export class PuppeteerCountyScraper extends CountyScraper {
         return liens;
       }
       
-      // Wait for page to load with timeout protection
-      await Promise.race([
-        new Promise(resolve => setTimeout(resolve, 3000)),
-        new Promise(resolve => setTimeout(resolve, 10000)) // Max 10 seconds wait
-      ]);
+      // Now fill out and submit the search form
+      await Logger.info(`📝 Filling out search form with dates and document type`, 'county-scraper');
+      
+      try {
+        // Wait for form elements to be present
+        await page.waitForSelector('#txbRecBegDate', { timeout: 10000 });
+        
+        // Clear and fill start date
+        await page.evaluate((start) => {
+          const startInput = document.querySelector('#txbRecBegDate') as HTMLInputElement;
+          if (startInput) {
+            startInput.value = start;
+          }
+        }, `${startMonth}/${startDay}/${startYear}`);
+        
+        // Clear and fill end date
+        await page.evaluate((end) => {
+          const endInput = document.querySelector('#txbRecEndDate') as HTMLInputElement;
+          if (endInput) {
+            endInput.value = end;
+          }
+        }, `${endMonth}/${endDay}/${endYear}`);
+        
+        // Select HL (Medical Lien) document type
+        await page.select('#ddlDocType1', 'HL');
+        
+        await Logger.info(`✅ Form filled with dates and HL document type`, 'county-scraper');
+        
+        // Submit the form and wait for navigation
+        await Logger.info(`🚀 Submitting search form...`, 'county-scraper');
+        
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 60000 }),
+          page.click('#btnRecDataSubmit')
+        ]);
+        
+        await Logger.success(`✅ Search form submitted successfully`, 'county-scraper');
+        
+        // Wait for results to load
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      } catch (formError: any) {
+        await Logger.error(`Failed to fill or submit search form: ${formError.message}`, 'county-scraper');
+        // Try direct URL as fallback
+        await Logger.info(`🔄 Attempting direct URL as fallback...`, 'county-scraper');
+        const directUrl = `https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRecentPgDn.aspx?rec=0&suf=&nm=&bdt=${startMonth}%2F${startDay}%2F${startYear}&edt=${endMonth}%2F${endDay}%2F${endYear}&cde=HL&max=500&res=True&doc1=HL&doc2=&doc3=&doc4=&doc5=`;
+        await page.goto(directUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
       
       // Log the current URL to verify navigation
       const currentUrl = page.url();
@@ -638,8 +680,29 @@ export class PuppeteerCountyScraper extends CountyScraper {
         await page.screenshot({ path: `results-page-${pageNum}.png` });
         await Logger.info(`📸 Screenshot saved to results-page-${pageNum}.png`, 'county-scraper');
         
+        // Check for results in iframe
+        const frames = page.frames();
+        const resultsFrame = frames.find(f => f.url()?.includes('GetRecDataRecentPgDn') || f.url()?.includes('results'));
+        
+        if (resultsFrame) {
+          await Logger.info(`🔍 Found results frame: ${resultsFrame.url()}`, 'county-scraper');
+          
+          // Try to take a screenshot of the frame content if possible
+          try {
+            const frameContent = await resultsFrame.content();
+            await Logger.info(`📄 Frame content preview: ${frameContent.substring(0, 200)}`, 'county-scraper');
+          } catch (e) {
+            await Logger.warning(`Could not capture frame content: ${e}`, 'county-scraper');
+          }
+        } else {
+          await Logger.info(`📋 No iframe found, checking main page for results`, 'county-scraper');
+        }
+        
+        // Use the results frame if found, otherwise use main page
+        const targetPage = resultsFrame || page;
+        
         // Extract recording numbers from current page with better debugging
-        const pageData = await page.evaluate(() => {
+        const pageData = await targetPage.evaluate(() => {
           const numbers: string[] = [];
           const pageInfo: any = {
             url: window.location.href,
@@ -711,8 +774,8 @@ export class PuppeteerCountyScraper extends CountyScraper {
         await Logger.info(`Found ${pageRecordingNumbers.length} recording numbers on page ${pageNum}`, 'county-scraper');
         allRecordingNumbers.push(...pageRecordingNumbers);
 
-        // Check if there's a "Next Page" button and click it
-        hasNextPage = await page.evaluate(() => {
+        // Check if there's a "Next Page" button and click it (in the frame if available)
+        hasNextPage = await targetPage.evaluate(() => {
           // Look for next page link/button
           const nextLinks = Array.from(document.querySelectorAll('a, input[type="button"], button'));
           
