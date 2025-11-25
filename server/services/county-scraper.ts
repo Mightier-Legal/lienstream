@@ -1125,6 +1125,7 @@ export class PuppeteerCountyScraper extends CountyScraper {
                 creditorName: lienInfo.grantee || 'Medical Provider',
                 creditorAddress: '',
                 documentUrl: lienInfo.documentUrl, // This is now the local URL
+                pdfUrl: localPdfUrl, // Store the local PDF URL for Airtable sync
                 status: 'pending'
               });
               await Logger.info(`💾 Saved lien ${recordingNumber} to database with local PDF URL`, 'county-scraper');

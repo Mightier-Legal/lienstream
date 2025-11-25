@@ -31,6 +31,7 @@ export const liens = pgTable("liens", {
   creditorName: text("creditor_name"),
   creditorAddress: text("creditor_address"),
   documentUrl: text("document_url"),
+  pdfUrl: text("pdf_url"), // Local PDF URL for stored PDFs
   status: text("status").notNull().default("pending"), // pending, processing, synced, mailer_sent, completed
   airtableRecordId: text("airtable_record_id"),
   enrichmentData: jsonb("enrichment_data"),
