@@ -13,6 +13,8 @@ interface AirtableRecord {
     'Lien Amount'?: number;
     [key: string]: any; // Allow additional fields
   };
+  hasPdf?: boolean; // Internal flag for PDF status
+  recordingNumber?: string; // Internal flag for tracking
 }
 
 export class AirtableService {
@@ -49,18 +51,26 @@ export class AirtableService {
         const countyRecordId = process.env.AIRTABLE_COUNTY_RECORD_ID;
         
         // Determine the PDF URL to use
-        let pdfAttachment;
+        let pdfAttachment = null;
         
-        // Check if we already have a local URL from the scraper
-        if (lien.documentUrl && (lien.documentUrl.includes('/api/pdf/') || lien.documentUrl.includes(baseUrl))) {
-          // Already have a local URL - use it directly
+        // PRIORITY 1: Check pdfUrl field (local stored PDF URL from database)
+        if (lien.pdfUrl && lien.pdfUrl.includes('/api/pdf/')) {
+          pdfAttachment = [{
+            url: lien.pdfUrl,
+            filename: `${lien.recordingNumber}.pdf`
+          }];
+          Logger.info(`Using local PDF URL from pdfUrl field for ${lien.recordingNumber}: ${lien.pdfUrl}`, 'airtable');
+        }
+        // PRIORITY 2: Check documentUrl if it's a local URL
+        else if (lien.documentUrl && (lien.documentUrl.includes('/api/pdf/') || lien.documentUrl.includes(baseUrl))) {
           pdfAttachment = [{
             url: lien.documentUrl,
             filename: `${lien.recordingNumber}.pdf`
           }];
-          Logger.info(`Using existing local PDF URL for ${lien.recordingNumber}: ${lien.documentUrl}`, 'airtable');
-        } else if (lien.pdfBuffer) {
-          // Have a buffer - store it and get URL
+          Logger.info(`Using local PDF URL from documentUrl for ${lien.recordingNumber}: ${lien.documentUrl}`, 'airtable');
+        }
+        // PRIORITY 3: Have a buffer - store it and get URL
+        else if (lien.pdfBuffer) {
           const pdfId = pdfStorage.storePdf(lien.pdfBuffer, lien.recordingNumber);
           const pdfUrl = `${baseUrl}/api/pdf/${pdfId}`;
           pdfAttachment = [{
@@ -68,14 +78,11 @@ export class AirtableService {
             filename: `${lien.recordingNumber}.pdf`
           }];
           Logger.info(`Stored PDF buffer for ${lien.recordingNumber} at ${pdfUrl}`, 'airtable');
-        } else {
-          // Fallback to external URL (this shouldn't happen with new scraping)
-          const externalUrl = lien.documentUrl || `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${lien.recordingNumber}.pdf`;
-          pdfAttachment = [{
-            url: externalUrl,
-            filename: `${lien.recordingNumber}.pdf`
-          }];
-          Logger.warning(`Using external PDF URL for ${lien.recordingNumber}: ${externalUrl} - Airtable may not be able to download this`, 'airtable');
+        }
+        // NO PDF AVAILABLE - skip this lien or log error
+        else {
+          Logger.error(`NO LOCAL PDF AVAILABLE for ${lien.recordingNumber} - cannot sync to Airtable without PDF`, 'airtable');
+          // Don't set pdfAttachment - we'll filter these out
         }
         
         // Convert recording number to number
@@ -83,9 +90,13 @@ export class AirtableService {
         
         // Build fields object dynamically
         const fields: any = {
-          'Record Number': recordNumber, // Convert to number for Airtable number field
-          'PDF Link': pdfAttachment // Now an attachment field
+          'Record Number': recordNumber // Convert to number for Airtable number field
         };
+        
+        // Only include PDF Link if we have a valid PDF attachment
+        if (pdfAttachment) {
+          fields['PDF Link'] = pdfAttachment;
+        }
         
         // Only include County field if we have a valid record ID
         if (countyRecordId) {
@@ -95,12 +106,30 @@ export class AirtableService {
           Logger.warning('County record ID not configured - omitting County field', 'airtable');
         }
         
-        return { fields };
+        return { fields, hasPdf: !!pdfAttachment, recordingNumber: lien.recordingNumber };
       });
+      
+      // Filter out records without PDFs - PDFs are ESSENTIAL
+      const recordsWithPdfs = records.filter(r => r.hasPdf);
+      const recordsWithoutPdfs = records.filter(r => !r.hasPdf);
+      
+      if (recordsWithoutPdfs.length > 0) {
+        Logger.warning(`Skipping ${recordsWithoutPdfs.length} liens without PDFs: ${recordsWithoutPdfs.map(r => r.recordingNumber).join(', ')}`, 'airtable');
+      }
+      
+      if (recordsWithPdfs.length === 0) {
+        Logger.error('No liens have PDFs - aborting Airtable sync', 'airtable');
+        return;
+      }
+      
+      // Convert back to just fields for Airtable
+      const cleanRecords = recordsWithPdfs.map(r => ({ fields: r.fields }));
 
       // Batch create records (Airtable allows up to 10 records per request)
-      const batches = this.chunkArray(records, 10);
+      const batches = this.chunkArray(cleanRecords, 10);
       let syncedCount = 0;
+      
+      Logger.info(`Syncing ${cleanRecords.length} liens with PDFs to Airtable`, 'airtable');
 
       for (const batch of batches) {
         try {
