@@ -120,12 +120,43 @@ export class PuppeteerCountyScraper extends CountyScraper {
     return null;
   }
 
-  // Original downloadPdf method remains unchanged
+  // Original downloadPdf method - updated with correct URL format
   async downloadPdf(pdfUrl: string, recordingNumber: string, page?: Page): Promise<Buffer | null> {
     try {
       await Logger.info(`📥 Attempting to download PDF for recording ${recordingNumber}`, 'county-scraper');
       
-      // First, try the direct URL pattern (works for some recording numbers)
+      // PRIMARY METHOD: Use the UnofficialPdfDocs.aspx endpoint (works for all documents including recent ones)
+      const primaryPdfUrl = `https://legacy.recorder.maricopa.gov/recdocdata/UnofficialPdfDocs.aspx?rec=${recordingNumber}&pg=1&cls=RecorderDocuments&suf=`;
+      
+      try {
+        const response = await fetch(primaryPdfUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/pdf,*/*',
+            'Referer': 'https://legacy.recorder.maricopa.gov/recdocdata/'
+          },
+          redirect: 'follow'
+        });
+        
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          
+          // Check if it's actually a PDF (not an HTML error page)
+          if (buffer.length > 10000) {
+            const header = buffer.toString('utf8', 0, 5);
+            if (header.startsWith('%PDF') || header.startsWith('<<')) {
+              await Logger.success(`✅ Downloaded PDF (${buffer.length} bytes) from primary URL: ${primaryPdfUrl}`, 'county-scraper');
+              return buffer;
+            }
+          }
+        }
+        await Logger.info(`Primary URL failed, trying legacy direct URL`, 'county-scraper');
+      } catch (fetchError) {
+        await Logger.info(`Primary fetch failed: ${fetchError}`, 'county-scraper');
+      }
+      
+      // FALLBACK: Try the legacy direct URL pattern (works for older recording numbers)
       const directPdfUrl = `https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/${recordingNumber}.pdf`;
       
       try {
@@ -145,14 +176,14 @@ export class PuppeteerCountyScraper extends CountyScraper {
           // Check if it's actually a PDF (starts with %PDF)
           const header = buffer.toString('utf8', 0, 5);
           if (header.startsWith('%PDF')) {
-            await Logger.success(`✅ Downloaded PDF (${buffer.length} bytes) from direct URL: ${directPdfUrl}`, 'county-scraper');
+            await Logger.success(`✅ Downloaded PDF (${buffer.length} bytes) from legacy URL: ${directPdfUrl}`, 'county-scraper');
             return buffer;
           }
         } else if (response.status === 404) {
-          await Logger.info(`Direct URL returned 404, will try viewer page extraction`, 'county-scraper');
+          await Logger.info(`Legacy URL returned 404, will try viewer page extraction`, 'county-scraper');
         }
       } catch (fetchError) {
-        await Logger.info(`Direct fetch failed: ${fetchError}`, 'county-scraper');
+        await Logger.info(`Legacy fetch failed: ${fetchError}`, 'county-scraper');
       }
       
       // If direct URL fails, try to extract the actual PDF URL from the viewer page

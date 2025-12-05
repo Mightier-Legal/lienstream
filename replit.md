@@ -43,10 +43,12 @@ Basic user management is implemented through the users table, though the current
 - **Puppeteer**: Headless Chrome automation for scraping Maricopa County recorder websites
   - **RESOLVED**: Fixed critical timeout error "Timed out after 30000 ms" by removing hardcoded Chrome path
   - **RESOLVED**: Fixed ES module "require is not defined" error by converting to ES6 imports
+  - **RESOLVED** (Dec 5, 2025): Fixed PDF download URL format - county changed from `/UnOfficialDocs/pdf/{num}.pdf` to `/recdocdata/UnofficialPdfDocs.aspx?rec={num}&pg=1&cls=RecorderDocuments&suf=`
   - Dynamic Chrome detection with automatic path discovery
   - 60-second timeout with 3 retry attempts for browser launch  
   - Special configuration for Replit/container environments
   - Successfully launches browser and discovers liens (tested with 150+ liens found)
+- **PDF Download**: Primary URL format is `UnofficialPdfDocs.aspx` endpoint (works for all documents including recent ones), with legacy `/UnOfficialDocs/pdf/` as fallback
 - **Chromium**: System dependency installed for reliable browser automation
 - **Node-cron**: Task scheduling for automated daily scraping runs at 1:00 AM ET
 
