@@ -959,16 +959,57 @@ export class PuppeteerCountyScraper extends CountyScraper {
           const lienData = await recordPage.evaluate(() => {
             // Get all text from the page
             const pageText = document.body?.innerText || '';
-            
+
             // Extract recording date
             const dateMatch = pageText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
             const recordingDate = dateMatch ? dateMatch[1] : '';
-            
-            // Extract names (usually in a specific format on the page)
-            const grantorMatch = pageText.match(/Grantor[\s:]+([^\n]+)/i);
-            const granteeMatch = pageText.match(/Grantee[\s:]+([^\n]+)/i);
-            
-            const grantorName = grantorMatch ? grantorMatch[1].trim() : '';
+
+            // Extract names - the page shows "Name(s)" header with debtor on first line, creditor on second
+            // Try multiple patterns to be more resilient to page format changes
+            let grantorName = '';
+            let granteeName = '';
+
+            // Method 1: Look for the Name(s) section in the table structure
+            // The page has: Name(s) column with debtor name first, then creditor name below
+            const namesSectionMatch = pageText.match(/Name\(s\)[\s\S]*?Document Code/i);
+            if (namesSectionMatch) {
+              // Extract text between "Name(s)" and "Document Code"
+              const namesSection = namesSectionMatch[0];
+              // Split by newlines and filter out empty lines and headers
+              const lines = namesSection.split('\n')
+                .map(l => l.trim())
+                .filter(l => l && !l.match(/^Name\(s\)/i) && !l.match(/^Document Code/i));
+
+              if (lines.length >= 1) {
+                grantorName = lines[0]; // First name is the debtor/patient
+              }
+              if (lines.length >= 2) {
+                granteeName = lines[1]; // Second name is the creditor/provider
+              }
+            }
+
+            // Method 2: Fallback to old Grantor/Grantee format if Method 1 didn't work
+            if (!grantorName) {
+              const grantorMatch = pageText.match(/Grantor[\s:]+([^\n]+)/i);
+              if (grantorMatch) {
+                grantorName = grantorMatch[1].trim();
+              }
+            }
+            if (!granteeName) {
+              const granteeMatch = pageText.match(/Grantee[\s:]+([^\n]+)/i);
+              if (granteeMatch) {
+                granteeName = granteeMatch[1].trim();
+              }
+            }
+
+            // Method 3: Try to find names near "MED LIEN" document code
+            if (!grantorName) {
+              const medLienMatch = pageText.match(/([A-Z][A-Z\s]+)\n([A-Z][A-Z\s]+(?:CENTER|HOSPITAL|CLINIC|MEDICAL|HEALTH|CHIROPRACTIC|REHABILITATION|LLC|INC|PC|PLLC)?)\s*\n\s*MED\s*LIEN/i);
+              if (medLienMatch) {
+                grantorName = medLienMatch[1].trim();
+                granteeName = medLienMatch[2].trim();
+              }
+            }
             
             // Extract address - typically appears right after the grantor/debtor name
             let address = '';
@@ -1011,7 +1052,7 @@ export class PuppeteerCountyScraper extends CountyScraper {
             return {
               recordingDate: recordingDate || '',
               grantor: grantorName,
-              grantee: granteeMatch ? granteeMatch[1].trim() : '',
+              grantee: granteeName,
               address: address,
               amount: amount,
               pageText: pageText.substring(0, 500) // First 500 chars for debugging
