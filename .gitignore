@@ -4,3 +4,9 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Environment files - NEVER commit these
+.env
+.env.local
+.env.production
+.env.*.local

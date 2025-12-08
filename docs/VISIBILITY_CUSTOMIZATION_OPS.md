@@ -4,10 +4,11 @@
 
 ### Issues Identified
 
-#### 1. **Status Cards Show Incorrect Data**
+#### 1. **Status Cards Show Incorrect Data** - FIXED
 - **Problem**: Cards show "0" and "No activity today" even when Replit shows 52 records
 - **Root Cause**: The `getDashboardStats()` in `server/database-storage.ts:308-383` filters by `recordDate` within today's date range, but if liens were recorded on a different date (e.g., yesterday's liens scraped today), they won't show
 - **Also**: Frontend expects `totalProcessed` and `pendingSync` but backend returns `mailersSent` and `activeLeads`
+- **Resolution**: Changed date filtering from `recordDate` to `createdAt` to show liens based on when they were scraped, not when they were recorded
 
 #### 2. **Automation Controls Not Interactive**
 - **Problem**: "Processing Pipeline" section is read-only, shows static status
@@ -18,9 +19,10 @@
 - **Problem**: Shows all logs, no filtering by level (error/warning/info)
 - **Missing**: No "View All" link to dedicated logs page, no export, no search
 
-#### 4. **Counties Page - No Edit Capability**
+#### 4. **Counties Page - No Edit Capability** - FIXED
 - **Problem**: Can only Enable/Disable counties, cannot edit configuration
 - **Missing**: Edit button, inline config editor, selector testing
+- **Resolution**: Added Edit button and modal with fields for: County Name, State, Base URL, Search URL, Document URL Pattern, Document Type Value, Page Load Delay, Between Requests Delay
 
 ---
 
@@ -148,19 +150,20 @@ Configuration
 
 ### Phase 1: Fix What's Broken (This Week)
 1. [x] Get app running locally - DONE
-2. [ ] **QW1**: Fix Status Cards data
+2. [x] **QW1**: Fix Status Cards data - DONE (changed filtering from recordDate to createdAt)
 3. [ ] **QW2**: Add log level filtering
-4. [ ] **QW3**: Add County edit button
+4. [x] **QW3**: Add County edit button - DONE (added Edit modal with essential config fields)
+5. [x] **NEW**: Add Run History page - DONE (table layout with status/type filters, shows automation runs)
 
 ### Phase 2: Improve Visibility (Next Week)
-5. [ ] **M2**: Dedicated Logs page
-6. [ ] **M1**: Real-time automation progress
-7. [ ] **L3**: Failed liens review panel
+6. [ ] **M2**: Dedicated Logs page
+7. [ ] **M1**: Real-time automation progress
+8. [ ] **L3**: Failed liens review panel
 
 ### Phase 3: Polish (Following Week)
-8. [ ] **L1**: Dashboard redesign
-9. [ ] **L2**: Sidebar restructure
-10. [ ] **M3**: County configuration editor
+9. [ ] **L1**: Dashboard redesign
+10. [ ] **L2**: Sidebar restructure
+11. [ ] **M3**: County configuration editor (partially done - basic modal exists, could add JSON editor/test buttons)
 
 ---
 
@@ -177,6 +180,8 @@ Configuration
 | `client/src/components/automation-status.tsx` | Pipeline status display |
 | `client/src/pages/counties.tsx` | County management page |
 | `client/src/pages/dashboard.tsx` | Main dashboard layout |
+| `client/src/pages/runs.tsx` | Run History page (NEW) |
+| `client/src/components/sidebar.tsx` | Sidebar navigation |
 
 ---
 
