@@ -10,10 +10,19 @@ import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Counties() {
   const { toast } = useToast();
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingCounty, setEditingCounty] = useState<County | null>(null);
 
   const { data: counties, isLoading } = useQuery<County[]>({
     queryKey: ['/api/counties'],
@@ -65,6 +74,67 @@ export default function Counties() {
       });
     }
   });
+
+  const updateCountyMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<County> }) => {
+      const response = await fetch(`/api/counties/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      if (!response.ok) throw new Error('Failed to update county');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/counties'] });
+      setEditingCounty(null);
+      toast({
+        title: "Success",
+        description: "County configuration updated successfully",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update county",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const handleEditSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingCounty) return;
+
+    const formData = new FormData(e.currentTarget);
+    const config = editingCounty.config as CountyConfig;
+
+    // Update the config with form values
+    const updatedConfig: CountyConfig = {
+      ...config,
+      baseUrl: formData.get('baseUrl') as string,
+      searchUrl: formData.get('searchUrl') as string,
+      documentUrlPattern: formData.get('documentUrlPattern') as string,
+      selectors: {
+        ...config.selectors,
+        documentTypeValue: formData.get('documentTypeValue') as string,
+      },
+      delays: {
+        ...config.delays,
+        pageLoad: parseInt(formData.get('pageLoadDelay') as string) || 2000,
+        betweenRequests: parseInt(formData.get('betweenRequestsDelay') as string) || 1000,
+      }
+    };
+
+    updateCountyMutation.mutate({
+      id: editingCounty.id,
+      updates: {
+        name: formData.get('name') as string,
+        state: formData.get('state') as string,
+        config: updatedConfig
+      }
+    });
+  };
 
   const handleAddCounty = (formData: FormData) => {
     const name = formData.get('name') as string;
@@ -295,9 +365,17 @@ export default function Counties() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => toggleCountyMutation.mutate({ 
-                            id: county.id, 
-                            isActive: !county.isActive 
+                          onClick={() => setEditingCounty(county)}
+                          className="transition-all duration-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => toggleCountyMutation.mutate({
+                            id: county.id,
+                            isActive: !county.isActive
                           })}
                           disabled={toggleCountyMutation.isPending}
                           className={`transition-all duration-200 ${county.isActive ? 'hover:bg-red-50 hover:text-red-600 hover:border-red-200' : 'hover:bg-green-50 hover:text-green-600 hover:border-green-200'}`}
@@ -359,6 +437,143 @@ export default function Counties() {
           )}
         </div>
       </div>
+
+      {/* Edit County Modal */}
+      <Dialog open={!!editingCounty} onOpenChange={(open) => !open && setEditingCounty(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit County Configuration</DialogTitle>
+            <DialogDescription>
+              Update the configuration for {editingCounty?.name}. Changes will take effect on the next scrape run.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingCounty && (
+            <form onSubmit={handleEditSubmit} className="space-y-6">
+              {/* Basic Info */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-slate-800 border-b pb-2">Basic Information</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-name">County Name</Label>
+                    <Input
+                      id="edit-name"
+                      name="name"
+                      defaultValue={editingCounty.name}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-state">State</Label>
+                    <Input
+                      id="edit-state"
+                      name="state"
+                      defaultValue={editingCounty.state}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* URLs */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-slate-800 border-b pb-2">URLs</h4>
+                <div>
+                  <Label htmlFor="edit-baseUrl">Base URL</Label>
+                  <Input
+                    id="edit-baseUrl"
+                    name="baseUrl"
+                    defaultValue={(editingCounty.config as CountyConfig).baseUrl}
+                    placeholder="https://recorder.county.gov"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-searchUrl">Search URL</Label>
+                  <Input
+                    id="edit-searchUrl"
+                    name="searchUrl"
+                    defaultValue={(editingCounty.config as CountyConfig).searchUrl}
+                    placeholder="https://recorder.county.gov/search"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-documentUrlPattern">Document URL Pattern</Label>
+                  <Input
+                    id="edit-documentUrlPattern"
+                    name="documentUrlPattern"
+                    defaultValue={(editingCounty.config as CountyConfig).documentUrlPattern}
+                    placeholder="https://recorder.county.gov/pdf/{recordingNumber}.pdf"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Use {'{recordingNumber}'} as placeholder</p>
+                </div>
+              </div>
+
+              {/* Selectors */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-slate-800 border-b pb-2">Document Type</h4>
+                <div>
+                  <Label htmlFor="edit-documentTypeValue">Document Type Value</Label>
+                  <Input
+                    id="edit-documentTypeValue"
+                    name="documentTypeValue"
+                    defaultValue={(editingCounty.config as CountyConfig).selectors?.documentTypeValue}
+                    placeholder="MEDICAL LN"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">The value to select for medical liens</p>
+                </div>
+              </div>
+
+              {/* Delays */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-slate-800 border-b pb-2">Timing (milliseconds)</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-pageLoadDelay">Page Load Delay</Label>
+                    <Input
+                      id="edit-pageLoadDelay"
+                      name="pageLoadDelay"
+                      type="number"
+                      defaultValue={(editingCounty.config as CountyConfig).delays?.pageLoad || 2000}
+                      min={500}
+                      max={10000}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-betweenRequestsDelay">Between Requests Delay</Label>
+                    <Input
+                      id="edit-betweenRequestsDelay"
+                      name="betweenRequestsDelay"
+                      type="number"
+                      defaultValue={(editingCounty.config as CountyConfig).delays?.betweenRequests || 1000}
+                      min={500}
+                      max={10000}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditingCounty(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={updateCountyMutation.isPending}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {updateCountyMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

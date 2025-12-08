@@ -315,7 +315,7 @@ export class DatabaseStorage implements IStorage {
     // Otherwise get today's stats
     let startDate: Date;
     let endDate: Date;
-    
+
     if (date) {
       startDate = new Date(date);
       startDate.setHours(0, 0, 0, 0);
@@ -327,27 +327,27 @@ export class DatabaseStorage implements IStorage {
       endDate = new Date();
       endDate.setHours(23, 59, 59, 999);
     }
-    
-    // Count liens by their record date (not creation date)
+
+    // Count liens by createdAt (when we scraped them), not recordDate
     const [liensResult] = await db.select({ count: sql<number>`count(*)` })
       .from(liens)
       .where(and(
-        gte(liens.recordDate, startDate),
-        sql`${liens.recordDate} <= ${endDate}`
+        gte(liens.createdAt, startDate),
+        sql`${liens.createdAt} <= ${endDate}`
       ));
     const todaysLiens = Number(liensResult?.count || 0);
-    
-    // Count liens synced to Airtable by record date
+
+    // Count liens synced to Airtable by createdAt
     const [syncedResult] = await db.select({ count: sql<number>`count(*)` })
       .from(liens)
       .where(and(
         eq(liens.status, 'synced'),
-        gte(liens.recordDate, startDate),
-        sql`${liens.recordDate} <= ${endDate}`
+        gte(liens.createdAt, startDate),
+        sql`${liens.createdAt} <= ${endDate}`
       ));
     const airtableSynced = Number(syncedResult?.count || 0);
-    
-    // Count mailers sent by record date
+
+    // Count mailers sent by createdAt
     const [mailerResult] = await db.select({ count: sql<number>`count(*)` })
       .from(liens)
       .where(and(
@@ -355,25 +355,25 @@ export class DatabaseStorage implements IStorage {
           eq(liens.status, 'mailer_sent'),
           eq(liens.status, 'completed')
         ),
-        gte(liens.recordDate, startDate),
-        sql`${liens.recordDate} <= ${endDate}`
+        gte(liens.createdAt, startDate),
+        sql`${liens.createdAt} <= ${endDate}`
       ));
     const mailersSent = Number(mailerResult?.count || 0);
-    
-    // Active leads are still within 30 days of the specified date (by record date)
+
+    // Active leads are still within 30 days of the specified date (by createdAt)
     const activeDate = date ? new Date(date) : new Date();
     const thirtyDaysAgo = new Date(activeDate);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const [activeResult] = await db.select({ count: sql<number>`count(*)` })
       .from(liens)
       .where(and(
         eq(liens.status, 'synced'),
-        gte(liens.recordDate, thirtyDaysAgo),
-        sql`${liens.recordDate} <= ${endDate}`
+        gte(liens.createdAt, thirtyDaysAgo),
+        sql`${liens.createdAt} <= ${endDate}`
       ));
     const activeLeads = Number(activeResult?.count || 0);
-    
+
     return {
       todaysLiens,
       airtableSynced,

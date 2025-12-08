@@ -29,6 +29,7 @@ export function Sidebar() {
 
   const menuItems = [
     { path: "/", icon: "fas fa-tachometer-alt", label: "Dashboard" },
+    { path: "/runs", icon: "fas fa-history", label: "Run History" },
     { path: "/counties", icon: "fas fa-map", label: "Counties" },
   ];
 
