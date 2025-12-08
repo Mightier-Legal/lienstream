@@ -90,6 +90,7 @@ export default function Operations() {
   const [isMarkingStale, setIsMarkingStale] = useState(false);
   const [showDuplicatesSheet, setShowDuplicatesSheet] = useState(false);
   const [showStaleSheet, setShowStaleSheet] = useState(false);
+  const [showLogsSheet, setShowLogsSheet] = useState(false);
 
   // Automation status query
   const { data: automationStatus } = useQuery<AutomationStatus>({
@@ -602,14 +603,22 @@ export default function Operations() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Recording #</TableHead>
+                        <TableHead>County</TableHead>
+                        <TableHead>Debtor</TableHead>
                         <TableHead>Created</TableHead>
-                        <TableHead>Has PDF</TableHead>
+                        <TableHead>PDF</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {staleLiens.liens.slice(0, 10).map((lien) => (
                         <TableRow key={lien.id}>
                           <TableCell className="font-mono text-sm">{lien.recordingNumber}</TableCell>
+                          <TableCell className="text-sm text-slate-600">
+                            {lien.countyId ? lien.countyId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '-'}
+                          </TableCell>
+                          <TableCell className="text-sm text-slate-600 max-w-[150px] truncate" title={lien.debtorName}>
+                            {lien.debtorName || '-'}
+                          </TableCell>
                           <TableCell className="text-sm text-slate-600">{formatFullDate(lien.createdAt)}</TableCell>
                           <TableCell>
                             {lien.pdfUrl ? (
@@ -622,7 +631,7 @@ export default function Operations() {
                       ))}
                       {staleLiens.count > 10 && (
                         <TableRow>
-                          <TableCell colSpan={3} className="text-center text-sm text-slate-500">
+                          <TableCell colSpan={5} className="text-center text-sm text-slate-500">
                             ...and {staleLiens.count - 10} more
                           </TableCell>
                         </TableRow>
@@ -859,11 +868,9 @@ export default function Operations() {
                 <i className="fas fa-exclamation-circle text-orange-600"></i>
                 Recent Errors (Last 24h)
               </CardTitle>
-              <Button variant="outline" size="sm" asChild>
-                <a href="/api/logs/export" target="_blank">
-                  <i className="fas fa-download mr-2"></i>
-                  View All Logs
-                </a>
+              <Button variant="outline" size="sm" onClick={() => setShowLogsSheet(true)}>
+                <i className="fas fa-list mr-2"></i>
+                View All Logs
               </Button>
             </div>
           </CardHeader>
@@ -961,7 +968,7 @@ export default function Operations() {
 
       {/* Stale Records Sheet */}
       <Sheet open={showStaleSheet} onOpenChange={setShowStaleSheet}>
-        <SheetContent className="w-[700px] sm:max-w-[700px] overflow-y-auto">
+        <SheetContent className="w-[900px] sm:max-w-[900px] overflow-y-auto">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <i className="fas fa-clock text-orange-600"></i>
@@ -999,15 +1006,23 @@ export default function Operations() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Recording #</TableHead>
+                  <TableHead>County</TableHead>
+                  <TableHead>Debtor</TableHead>
                   <TableHead>Created</TableHead>
-                  <TableHead>Has PDF URL</TableHead>
-                  <TableHead>Airtable ID</TableHead>
+                  <TableHead>PDF</TableHead>
+                  <TableHead>Airtable</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {staleLiens?.liens.map((lien) => (
                   <TableRow key={lien.id}>
                     <TableCell className="font-mono text-sm">{lien.recordingNumber}</TableCell>
+                    <TableCell className="text-sm text-slate-600">
+                      {lien.countyId ? lien.countyId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '-'}
+                    </TableCell>
+                    <TableCell className="text-sm text-slate-600 max-w-[150px] truncate" title={lien.debtorName}>
+                      {lien.debtorName || '-'}
+                    </TableCell>
                     <TableCell className="text-sm text-slate-600">{formatFullDate(lien.createdAt)}</TableCell>
                     <TableCell>
                       {lien.pdfUrl ? (
@@ -1020,16 +1035,97 @@ export default function Operations() {
                       {lien.airtableRecordId ? (
                         <Badge className="bg-green-100 text-green-800">
                           <i className="fas fa-check mr-1"></i>
-                          In Airtable
+                          Synced
                         </Badge>
                       ) : (
-                        <Badge className="bg-slate-100 text-slate-600">Not synced</Badge>
+                        <Badge className="bg-slate-100 text-slate-600">No</Badge>
                       )}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* All Logs Sheet */}
+      <Sheet open={showLogsSheet} onOpenChange={setShowLogsSheet}>
+        <SheetContent className="w-[700px] sm:max-w-[700px] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <i className="fas fa-list text-slate-600"></i>
+              System Logs (Last 24h)
+            </SheetTitle>
+            <SheetDescription>
+              {logs?.length || 0} log entries - showing all levels (info, success, warning, error)
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6">
+            <div className="mb-4 flex gap-2 flex-wrap">
+              <Badge className="bg-blue-100 text-blue-800">
+                <span className="w-2 h-2 rounded-full bg-blue-500 mr-1.5 inline-block"></span>
+                Info
+              </Badge>
+              <Badge className="bg-green-100 text-green-800">
+                <span className="w-2 h-2 rounded-full bg-green-500 mr-1.5 inline-block"></span>
+                Success
+              </Badge>
+              <Badge className="bg-yellow-100 text-yellow-800">
+                <span className="w-2 h-2 rounded-full bg-yellow-500 mr-1.5 inline-block"></span>
+                Warning
+              </Badge>
+              <Badge className="bg-red-100 text-red-800">
+                <span className="w-2 h-2 rounded-full bg-red-500 mr-1.5 inline-block"></span>
+                Error
+              </Badge>
+            </div>
+            {logs && logs.length > 0 ? (
+              <div className="space-y-2">
+                {logs.map((log) => (
+                  <div key={log.id} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
+                      log.level === 'error' ? 'bg-red-500' :
+                      log.level === 'warning' ? 'bg-yellow-500' :
+                      log.level === 'success' ? 'bg-green-500' :
+                      'bg-blue-500'
+                    }`}></div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-800">{log.message}</p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="text-xs text-slate-500">
+                          {formatFullDate(log.timestamp)} at {formatTimestamp(log.timestamp)}
+                        </span>
+                        {log.component && (
+                          <>
+                            <span className="text-xs text-slate-300">|</span>
+                            <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded">
+                              {log.component}
+                            </span>
+                          </>
+                        )}
+                        <span className="text-xs text-slate-300">|</span>
+                        <Badge variant="outline" className={`text-xs ${
+                          log.level === 'error' ? 'border-red-300 text-red-700' :
+                          log.level === 'warning' ? 'border-yellow-300 text-yellow-700' :
+                          log.level === 'success' ? 'border-green-300 text-green-700' :
+                          'border-blue-300 text-blue-700'
+                        }`}>
+                          {log.level}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <i className="fas fa-list text-slate-400 text-xl"></i>
+                </div>
+                <p className="text-slate-500">No logs found</p>
+              </div>
+            )}
           </div>
         </SheetContent>
       </Sheet>
