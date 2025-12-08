@@ -910,6 +910,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === Operations Page Endpoints ===
+
+  // Get stale pending liens (pending for more than X hours)
+  app.get("/api/liens/stale", requireAuth, async (req, res) => {
+    try {
+      const hoursOld = parseInt(req.query.hours as string) || 24;
+      const staleLiens = await (storage as any).getStalePendingLiens(hoursOld);
+
+      res.json({
+        count: staleLiens.length,
+        hoursOld,
+        liens: staleLiens
+      });
+    } catch (error) {
+      await Logger.error(`Failed to fetch stale liens: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to fetch stale liens" });
+    }
+  });
+
+  // Mark stale pending liens as 'stale' status
+  app.post("/api/liens/stale/mark", requireAuth, async (req, res) => {
+    try {
+      const hoursOld = parseInt(req.body.hours as string) || 24;
+      const count = await (storage as any).markStalePendingLiens(hoursOld);
+
+      await Logger.info(`Marked ${count} stale pending liens (older than ${hoursOld} hours)`, 'operations');
+
+      res.json({
+        success: true,
+        count,
+        message: `Marked ${count} liens as stale`
+      });
+    } catch (error) {
+      await Logger.error(`Failed to mark stale liens: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to mark stale liens" });
+    }
+  });
+
+  // Find duplicate recording numbers
+  app.get("/api/liens/duplicates", requireAuth, async (req, res) => {
+    try {
+      const duplicates = await (storage as any).findDuplicateRecordingNumbers();
+
+      res.json({
+        count: duplicates.length,
+        duplicates
+      });
+    } catch (error) {
+      await Logger.error(`Failed to find duplicates: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to find duplicates" });
+    }
+  });
+
+  // Get lien counts by status
+  app.get("/api/liens/status-counts", requireAuth, async (req, res) => {
+    try {
+      const counts = await (storage as any).getLiensCountByStatus();
+      res.json(counts);
+    } catch (error) {
+      await Logger.error(`Failed to get status counts: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to get status counts" });
+    }
+  });
+
+  // Bulk update lien status
+  app.post("/api/liens/bulk-update-status", requireAuth, async (req, res) => {
+    try {
+      const { lienIds, newStatus } = req.body;
+
+      if (!Array.isArray(lienIds) || !newStatus) {
+        return res.status(400).json({ error: "lienIds array and newStatus required" });
+      }
+
+      const count = await (storage as any).bulkUpdateLienStatus(lienIds, newStatus);
+
+      await Logger.info(`Bulk updated ${count} liens to status: ${newStatus}`, 'operations');
+
+      res.json({
+        success: true,
+        count,
+        message: `Updated ${count} liens to status: ${newStatus}`
+      });
+    } catch (error) {
+      await Logger.error(`Failed to bulk update status: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to bulk update status" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

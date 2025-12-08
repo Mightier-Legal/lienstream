@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/sidebar";
 import Dashboard from "@/pages/dashboard";
+import Operations from "@/pages/operations";
 import Liens from "@/pages/liens";
 import Counties from "@/pages/counties";
 import Runs from "@/pages/runs";
@@ -38,6 +39,7 @@ function AuthenticatedApp() {
       <Sidebar />
       <Switch>
         <Route path="/" component={Dashboard} />
+        <Route path="/operations" component={Operations} />
         <Route path="/liens" component={Liens} />
         <Route path="/counties" component={Counties} />
         <Route path="/runs" component={Runs} />

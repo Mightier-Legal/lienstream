@@ -425,12 +425,86 @@ export class DatabaseStorage implements IStorage {
   
   // Failed liens tracking (storing in memory for now, can be persisted to DB if needed)
   private failedLiens: any[] = [];
-  
+
   async setFailedLiens(liens: any[]): Promise<void> {
     this.failedLiens = liens;
   }
 
   async getFailedLiens(): Promise<any[]> {
     return this.failedLiens;
+  }
+
+  // Get stale pending liens (pending for more than X hours)
+  async getStalePendingLiens(hoursOld: number = 24): Promise<Lien[]> {
+    const cutoffDate = new Date();
+    cutoffDate.setHours(cutoffDate.getHours() - hoursOld);
+
+    return await db.select()
+      .from(liens)
+      .where(and(
+        eq(liens.status, 'pending'),
+        sql`${liens.createdAt} < ${cutoffDate}`
+      ))
+      .orderBy(desc(liens.createdAt));
+  }
+
+  // Mark stale pending liens as 'stale' status
+  async markStalePendingLiens(hoursOld: number = 24): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setHours(cutoffDate.getHours() - hoursOld);
+
+    const result = await db.update(liens)
+      .set({ status: 'stale', updatedAt: new Date() })
+      .where(and(
+        eq(liens.status, 'pending'),
+        sql`${liens.createdAt} < ${cutoffDate}`
+      ))
+      .returning();
+
+    return result.length;
+  }
+
+  // Find duplicate recording numbers with different statuses
+  async findDuplicateRecordingNumbers(): Promise<{ recordingNumber: string; count: number; statuses: string[] }[]> {
+    const result = await db.execute(sql`
+      SELECT recording_number, COUNT(*) as count, ARRAY_AGG(DISTINCT status) as statuses
+      FROM liens
+      GROUP BY recording_number
+      HAVING COUNT(*) > 1
+      ORDER BY count DESC
+    `);
+
+    return (result.rows || []).map((row: any) => ({
+      recordingNumber: row.recording_number,
+      count: Number(row.count),
+      statuses: row.statuses || []
+    }));
+  }
+
+  // Get liens by status with count
+  async getLiensCountByStatus(): Promise<{ status: string; count: number }[]> {
+    const result = await db.execute(sql`
+      SELECT status, COUNT(*) as count
+      FROM liens
+      GROUP BY status
+      ORDER BY count DESC
+    `);
+
+    return (result.rows || []).map((row: any) => ({
+      status: row.status,
+      count: Number(row.count)
+    }));
+  }
+
+  // Bulk update status for specific lien IDs
+  async bulkUpdateLienStatus(lienIds: string[], newStatus: string): Promise<number> {
+    if (lienIds.length === 0) return 0;
+
+    const result = await db.update(liens)
+      .set({ status: newStatus, updatedAt: new Date() })
+      .where(sql`id = ANY(${lienIds})`)
+      .returning();
+
+    return result.length;
   }
 }
