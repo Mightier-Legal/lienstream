@@ -14,6 +14,7 @@ export function Sidebar() {
   const [hasInteracted, setHasInteracted] = useState(() => {
     return localStorage.getItem("sidebar-toggle-clicked") === "true";
   });
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("sidebar-collapsed", collapsed.toString());
@@ -36,7 +37,7 @@ export function Sidebar() {
 
   return (
     <aside className={cn(
-      "bg-white shadow-sm border-r border-slate-200 flex flex-col transition-all duration-300 relative",
+      "bg-white shadow-sm border-r border-slate-200 flex flex-col transition-all duration-300 relative h-screen sticky top-0 flex-shrink-0",
       collapsed ? "w-20" : "w-64"
     )}>
       {/* Toggle Button - Subtle Circular with Arrow */}
@@ -88,7 +89,7 @@ export function Sidebar() {
       </div>
       
       {/* Navigation */}
-      <nav className="flex-1 p-4">
+      <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-2">
           {menuItems.map((item) => (
             <li key={item.path}>
@@ -132,58 +133,94 @@ export function Sidebar() {
         </ul>
       </nav>
       
-      {/* User Profile */}
-      <div className={cn(
-        "border-t border-slate-200 transition-all duration-300",
-        collapsed ? "p-3" : "p-4"
-      )}>
-        {collapsed ? (
-          <Tooltip delayDuration={0}>
-            <TooltipTrigger asChild>
-              <div className="flex flex-col items-center space-y-2">
-                <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center text-lg">
-                  😊
-                </div>
-                <button 
-                  className="text-slate-400 hover:text-slate-600 text-sm" 
-                  data-testid="button-logout"
-                  onClick={logout}
-                  title="Sign Out"
-                >
-                  <i className="fas fa-sign-out-alt"></i>
-                </button>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <div>
-                <p className="font-medium">Admin User</p>
-                <p className="text-xs text-slate-500">Administrator</p>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        ) : (
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center text-lg">
-              😊
+      {/* User Profile with Expandable Menu */}
+      <div className="border-t border-slate-200">
+        {/* Expandable Menu (shows above user info when open) */}
+        {!collapsed && userMenuOpen && (
+          <div className="p-2 bg-slate-50 border-b border-slate-200">
+            <div className="space-y-1">
+              {/* Settings - placeholder for future */}
+              <button
+                className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-white hover:text-slate-800 transition-colors"
+                onClick={() => {
+                  // TODO: Navigate to settings page
+                  setUserMenuOpen(false);
+                }}
+              >
+                <i className="fas fa-cog w-4"></i>
+                <span>Settings</span>
+              </button>
+              {/* Logout */}
+              <button
+                className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+                data-testid="button-logout"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  logout();
+                }}
+              >
+                <i className="fas fa-sign-out-alt w-4"></i>
+                <span>Sign Out</span>
+              </button>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-800 truncate" data-testid="user-name">
-                Admin User
-              </p>
-              <p className="text-xs text-slate-500 truncate" data-testid="user-role">
-                Administrator
-              </p>
-            </div>
-            <button 
-              className="text-slate-400 hover:text-slate-600" 
-              data-testid="button-logout"
-              onClick={logout}
-              title="Sign Out"
-            >
-              <i className="fas fa-sign-out-alt"></i>
-            </button>
           </div>
         )}
+
+        {/* User Info Bar (clickable to toggle menu) */}
+        <div className={cn(
+          "transition-all duration-300",
+          collapsed ? "p-3" : "p-4"
+        )}>
+          {collapsed ? (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <div className="flex flex-col items-center space-y-2">
+                  <button
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center text-lg hover:ring-2 hover:ring-blue-400 transition-all"
+                  >
+                    😊
+                  </button>
+                  <button
+                    className="text-slate-400 hover:text-red-600 text-sm transition-colors"
+                    data-testid="button-logout-collapsed"
+                    onClick={logout}
+                    title="Sign Out"
+                  >
+                    <i className="fas fa-sign-out-alt"></i>
+                  </button>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <div>
+                  <p className="font-medium">Admin User</p>
+                  <p className="text-xs text-slate-500">Administrator</p>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="w-full flex items-center space-x-3 p-2 -m-2 rounded-lg hover:bg-slate-50 transition-colors group"
+            >
+              <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center text-lg group-hover:ring-2 group-hover:ring-blue-400 transition-all">
+                😊
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-medium text-slate-800 truncate" data-testid="user-name">
+                  Admin User
+                </p>
+                <p className="text-xs text-slate-500 truncate" data-testid="user-role">
+                  Administrator
+                </p>
+              </div>
+              <i className={cn(
+                "fas fa-chevron-up text-slate-400 transition-transform",
+                userMenuOpen ? "rotate-0" : "rotate-180"
+              )}></i>
+            </button>
+          )}
+        </div>
       </div>
     </aside>
   );
