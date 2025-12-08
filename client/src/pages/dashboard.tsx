@@ -1,6 +1,5 @@
 import { StatusCards } from "@/components/status-cards";
 import { AutomationStatus } from "@/components/automation-status";
-import { RecentLiensTable } from "@/components/recent-liens-table";
 import { SystemLogs } from "@/components/system-logs";
 import { ScheduleSettings } from "@/components/schedule-settings";
 import { Button } from "@/components/ui/button";
@@ -165,16 +164,7 @@ export default function Dashboard() {
           <AutomationStatus />
         </section>
         
-        {/* Section 3: Recent Activity - Important for monitoring */}
-        <section className="space-y-4">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="h-8 w-1 bg-green-600 rounded-full"></div>
-            <h3 className="text-lg font-semibold text-slate-800">Recent Activity</h3>
-          </div>
-          <RecentLiensTable />
-        </section>
-        
-        {/* Section 4: Configuration & Monitoring - Less frequently accessed */}
+        {/* Section 3: Configuration & Monitoring - Less frequently accessed */}
         <section className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="h-8 w-1 bg-purple-600 rounded-full"></div>

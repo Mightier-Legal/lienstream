@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Lien } from "@shared/schema";
+import { Lien, County } from "@shared/schema";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ export default function Liens() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLien, setSelectedLien] = useState<Lien | null>(null);
+  const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<LiensResponse>({
     queryKey: ['/api/liens/recent', page, limit],
@@ -54,6 +55,19 @@ export default function Liens() {
     },
     refetchInterval: 30000,
   });
+
+  // Fetch counties for lookup
+  const { data: counties } = useQuery<County[]>({
+    queryKey: ['/api/counties'],
+    queryFn: async () => {
+      const response = await fetch('/api/counties');
+      if (!response.ok) throw new Error('Failed to fetch counties');
+      return response.json();
+    },
+  });
+
+  // Create county lookup map
+  const countyMap = new Map(counties?.map(c => [c.id, c]) || []);
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { className: string; label: string }> = {
@@ -278,16 +292,16 @@ export default function Liens() {
                     <TableCell>{getStatusBadge(lien.status)}</TableCell>
                     <TableCell>
                       {(lien.pdfUrl || lien.documentUrl) ? (
-                        <a
-                          href={lien.pdfUrl || lien.documentUrl || '#'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPdfViewerUrl(lien.pdfUrl || lien.documentUrl || null);
+                          }}
                           className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
                         >
                           <i className="fas fa-file-pdf"></i>
                           <span>View</span>
-                        </a>
+                        </button>
                       ) : (
                         <span className="text-slate-400">-</span>
                       )}
@@ -349,6 +363,43 @@ export default function Liens() {
         </Card>
       </div>
 
+      {/* PDF Viewer Modal */}
+      <Dialog open={!!pdfViewerUrl} onOpenChange={(open) => !open && setPdfViewerUrl(null)}>
+        <DialogContent className="max-w-5xl h-[90vh] p-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b bg-white">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2">
+                <i className="fas fa-file-pdf text-red-500"></i>
+                PDF Document
+              </DialogTitle>
+              <div className="flex items-center gap-2">
+                <a
+                  href={pdfViewerUrl || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                >
+                  <i className="fas fa-external-link-alt"></i>
+                  Open in new tab
+                </a>
+              </div>
+            </div>
+            <DialogDescription className="text-xs text-slate-500 truncate max-w-[600px]">
+              {pdfViewerUrl}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 h-[calc(90vh-80px)] bg-slate-100">
+            {pdfViewerUrl && (
+              <iframe
+                src={pdfViewerUrl}
+                className="w-full h-full border-0"
+                title="PDF Viewer"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Lien Details Modal */}
       <Dialog open={!!selectedLien} onOpenChange={(open) => !open && setSelectedLien(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -366,6 +417,14 @@ export default function Liens() {
                 <div>
                   <label className="text-sm font-medium text-slate-500">Recording Number</label>
                   <div className="mt-1 font-mono text-slate-800">{selectedLien.recordingNumber}</div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-500">County</label>
+                  <div className="mt-1 text-slate-800">
+                    {countyMap.get(selectedLien.countyId)
+                      ? `${countyMap.get(selectedLien.countyId)?.name}, ${countyMap.get(selectedLien.countyId)?.state}`
+                      : selectedLien.countyId || '-'}
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-slate-500">Record Date</label>

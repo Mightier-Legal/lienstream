@@ -24,6 +24,29 @@
 - **Missing**: Edit button, inline config editor, selector testing
 - **Resolution**: Added Edit button and modal with fields for: County Name, State, Base URL, Search URL, Document URL Pattern, Document Type Value, Page Load Delay, Between Requests Delay
 
+#### 5. **No Liens Page** - FIXED
+- **Problem**: No way to view all scraped liens in the UI
+- **Resolution**: Added dedicated Liens page with:
+  - Full table view with Recording #, Record Date, Scraped date, Debtor/Creditor names, Amount, Status, PDF link
+  - Search across all fields including Airtable record ID (not visible in table but searchable)
+  - Status filtering and pagination
+  - Click-to-view detail modal
+
+#### 6. **Name Extraction Not Working** - FIXED
+- **Problem**: Debtor/Creditor names showing "To be extracted" and "Medical Provider" placeholders
+- **Root Cause**: Scraper was using old regex pattern looking for "Grantor:" which no longer exists on county website
+- **Resolution**: Updated scraper with 3 extraction methods:
+  - Method 1: Parse "Name(s)" section (debtor first line, creditor second)
+  - Method 2: Fallback to old Grantor/Grantee format
+  - Method 3: Pattern match names near "MED LIEN" text
+
+#### 7. **Metadata Fields Contain Redundant Data**
+- **Problem**: `automationRuns.metadata` stores `{ startedBy, fromDate, toDate }` - startedBy duplicates `type` field
+- **Problem**: `countyRuns.metadata` stores `{ county, state }` - duplicates data from linked `counties` table
+- **Proposed**: Use metadata for useful runtime info like:
+  - `automationRuns.metadata`: browser version, memory usage, error counts by type, liens by county breakdown
+  - `countyRuns.metadata`: recording numbers processed, PDF download stats, extraction success rate
+
 ---
 
 ## Quick Wins (1-2 hours each)
@@ -154,16 +177,20 @@ Configuration
 3. [ ] **QW2**: Add log level filtering
 4. [x] **QW3**: Add County edit button - DONE (added Edit modal with essential config fields)
 5. [x] **NEW**: Add Run History page - DONE (table layout with status/type filters, shows automation runs)
+6. [x] **NEW**: Add Liens page - DONE (full table with search, filters, pagination, detail modal)
+7. [x] **NEW**: Fix name extraction - DONE (updated scraper to parse "Name(s)" section from county website)
+8. [x] **NEW**: Fix .env secret leak - DONE (added to .gitignore, removed from git tracking)
 
 ### Phase 2: Improve Visibility (Next Week)
-6. [ ] **M2**: Dedicated Logs page
-7. [ ] **M1**: Real-time automation progress
-8. [ ] **L3**: Failed liens review panel
+9. [ ] **M2**: Dedicated Logs page
+10. [ ] **M1**: Real-time automation progress
+11. [ ] **L3**: Failed liens review panel
+12. [ ] **NEW**: Improve metadata fields - store useful runtime stats instead of redundant data
 
 ### Phase 3: Polish (Following Week)
-9. [ ] **L1**: Dashboard redesign
-10. [ ] **L2**: Sidebar restructure
-11. [ ] **M3**: County configuration editor (partially done - basic modal exists, could add JSON editor/test buttons)
+13. [ ] **L1**: Dashboard redesign
+14. [ ] **L2**: Sidebar restructure
+15. [ ] **M3**: County configuration editor (partially done - basic modal exists, could add JSON editor/test buttons)
 
 ---
 
@@ -173,14 +200,16 @@ Configuration
 |------|---------|
 | `server/database-storage.ts` | Database queries, getDashboardStats() |
 | `server/routes.ts` | API endpoints |
-| `server/services/scheduler.ts` | Automation orchestration |
-| `server/services/county-scraper.ts` | Web scraping logic (1200+ lines) |
+| `server/services/scheduler.ts` | Automation orchestration, metadata storage |
+| `server/services/county-scraper.ts` | Web scraping logic, name extraction |
+| `shared/schema.ts` | Database schema definitions |
 | `client/src/components/status-cards.tsx` | Dashboard stat cards |
 | `client/src/components/system-logs.tsx` | Log display widget |
 | `client/src/components/automation-status.tsx` | Pipeline status display |
 | `client/src/pages/counties.tsx` | County management page |
 | `client/src/pages/dashboard.tsx` | Main dashboard layout |
-| `client/src/pages/runs.tsx` | Run History page (NEW) |
+| `client/src/pages/runs.tsx` | Run History page |
+| `client/src/pages/liens.tsx` | Liens management page (NEW) |
 | `client/src/components/sidebar.tsx` | Sidebar navigation |
 
 ---
