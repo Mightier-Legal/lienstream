@@ -105,45 +105,25 @@ export default function Operations() {
 
   // Stale pending liens query (older than 24 hours)
   const { data: staleLiens, refetch: refetchStale } = useQuery<StaleLiensResponse>({
-    queryKey: ['/api/liens/stale'],
-    queryFn: async () => {
-      const response = await fetch('/api/liens/stale?hours=24');
-      if (!response.ok) throw new Error('Failed to fetch stale liens');
-      return response.json();
-    },
+    queryKey: ['/api/liens/stale?hours=24'],
     refetchInterval: 30000,
   });
 
   // Status counts query
   const { data: statusCounts } = useQuery<StatusCount[]>({
     queryKey: ['/api/liens/status-counts'],
-    queryFn: async () => {
-      const response = await fetch('/api/liens/status-counts');
-      if (!response.ok) throw new Error('Failed to fetch status counts');
-      return response.json();
-    },
     refetchInterval: 30000,
   });
 
   // Duplicates query
   const { data: duplicates } = useQuery<DuplicatesResponse>({
     queryKey: ['/api/liens/duplicates'],
-    queryFn: async () => {
-      const response = await fetch('/api/liens/duplicates');
-      if (!response.ok) throw new Error('Failed to fetch duplicates');
-      return response.json();
-    },
     refetchInterval: 60000,
   });
 
   // All liens for pending sync count
   const { data: allLiens } = useQuery<LiensResponse>({
-    queryKey: ['/api/liens/recent', 1, 10000],
-    queryFn: async () => {
-      const response = await fetch(`/api/liens/recent?page=1&limit=10000`);
-      if (!response.ok) throw new Error('Failed to fetch liens');
-      return response.json();
-    },
+    queryKey: ['/api/liens/recent?page=1&limit=10000'],
     refetchInterval: 30000,
   });
 
@@ -395,17 +375,6 @@ export default function Operations() {
     });
   };
 
-  const formatDate = (timestamp: string | Date) => {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
-
   const formatFullDate = (timestamp: string | Date) => {
     const date = new Date(timestamp);
     return date.toLocaleDateString('en-US', {
@@ -465,20 +434,20 @@ export default function Operations() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Card
-                className={`bg-white cursor-pointer hover:shadow-md transition-shadow ${staleLiens?.count ? 'border-orange-300' : ''}`}
-                onClick={() => staleLiens?.count && setShowStaleSheet(true)}
+                className={`bg-white cursor-pointer hover:shadow-md transition-shadow ${getStatusCount('stale') > 0 ? 'border-orange-300' : ''}`}
+                onClick={() => getStatusCount('stale') > 0 && setShowStaleSheet(true)}
               >
                 <CardContent className="pt-4">
-                  <div className="text-2xl font-bold text-slate-800">{staleLiens?.count || 0}</div>
+                  <div className="text-2xl font-bold text-slate-800">{getStatusCount('stale')}</div>
                   <div className="text-sm text-orange-600 flex items-center gap-1">
-                    Stale (24h+)
+                    Stale
                     <i className="fas fa-info-circle text-xs text-slate-400"></i>
                   </div>
                 </CardContent>
               </Card>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs">
-              <p>Pending records older than 24 hours that likely failed processing. Click to view all.</p>
+              <p>Records marked as stale (failed to process). Click to view all.</p>
             </TooltipContent>
           </Tooltip>
 

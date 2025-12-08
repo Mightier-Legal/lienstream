@@ -69,6 +69,13 @@ export interface IStorage {
   // Failed liens tracking for manual review
   setFailedLiens(liens: any[]): Promise<void>;
   getFailedLiens(): Promise<any[]>;
+
+  // Operations page methods
+  getStalePendingLiens(hoursOld: number): Promise<Lien[]>;
+  markStalePendingLiens(hoursOld: number): Promise<number>;
+  findDuplicateRecordingNumbers(): Promise<{recordingNumber: string; count: number; statuses: string[]}[]>;
+  getLiensCountByStatus(): Promise<{status: string; count: number}[]>;
+  bulkUpdateLienStatus(lienIds: string[], newStatus: string): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
@@ -490,6 +497,76 @@ export class MemStorage implements IStorage {
 
   async getFailedLiens(): Promise<any[]> {
     return this.failedLiens;
+  }
+
+  // Operations page methods
+  async getStalePendingLiens(hoursOld: number = 24): Promise<Lien[]> {
+    const cutoffTime = new Date(Date.now() - hoursOld * 60 * 60 * 1000);
+    return Array.from(this.liens.values()).filter(
+      lien => lien.status === 'pending' && lien.createdAt < cutoffTime
+    );
+  }
+
+  async markStalePendingLiens(hoursOld: number = 24): Promise<number> {
+    const staleLiens = await this.getStalePendingLiens(hoursOld);
+    for (const lien of staleLiens) {
+      lien.status = 'stale';
+      lien.updatedAt = new Date();
+      this.liens.set(lien.id, lien);
+    }
+    return staleLiens.length;
+  }
+
+  async findDuplicateRecordingNumbers(): Promise<{recordingNumber: string; count: number; statuses: string[]}[]> {
+    const recordingNumberMap = new Map<string, {count: number; statuses: Set<string>}>();
+
+    for (const lien of this.liens.values()) {
+      const existing = recordingNumberMap.get(lien.recordingNumber);
+      if (existing) {
+        existing.count++;
+        existing.statuses.add(lien.status);
+      } else {
+        recordingNumberMap.set(lien.recordingNumber, {
+          count: 1,
+          statuses: new Set([lien.status])
+        });
+      }
+    }
+
+    return Array.from(recordingNumberMap.entries())
+      .filter(([_, data]) => data.count > 1)
+      .map(([recordingNumber, data]) => ({
+        recordingNumber,
+        count: data.count,
+        statuses: Array.from(data.statuses)
+      }));
+  }
+
+  async getLiensCountByStatus(): Promise<{status: string; count: number}[]> {
+    const statusCounts = new Map<string, number>();
+
+    for (const lien of this.liens.values()) {
+      statusCounts.set(lien.status, (statusCounts.get(lien.status) || 0) + 1);
+    }
+
+    return Array.from(statusCounts.entries()).map(([status, count]) => ({
+      status,
+      count
+    }));
+  }
+
+  async bulkUpdateLienStatus(lienIds: string[], newStatus: string): Promise<number> {
+    let updated = 0;
+    for (const id of lienIds) {
+      const lien = this.liens.get(id);
+      if (lien) {
+        lien.status = newStatus;
+        lien.updatedAt = new Date();
+        this.liens.set(id, lien);
+        updated++;
+      }
+    }
+    return updated;
   }
 }
 
