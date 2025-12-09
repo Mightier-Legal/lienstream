@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAuth } from "@/hooks/useAuth";
 
 export function Sidebar() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { logout } = useAuth();
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem("sidebar-collapsed");
@@ -140,12 +140,12 @@ export function Sidebar() {
         {!collapsed && userMenuOpen && (
           <div className="p-2 bg-slate-50 border-b border-slate-200">
             <div className="space-y-1">
-              {/* Settings - placeholder for future */}
+              {/* Settings */}
               <button
                 className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-white hover:text-slate-800 transition-colors"
                 onClick={() => {
-                  // TODO: Navigate to settings page
                   setUserMenuOpen(false);
+                  setLocation('/settings');
                 }}
               >
                 <i className="fas fa-cog w-4"></i>
@@ -173,32 +173,44 @@ export function Sidebar() {
           collapsed ? "p-3" : "p-4"
         )}>
           {collapsed ? (
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <div className="flex flex-col items-center space-y-2">
+            <div className="relative flex flex-col items-center">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center text-lg hover:ring-2 hover:ring-blue-400 transition-all"
+              >
+                😊
+              </button>
+              {/* Popup menu for collapsed sidebar */}
+              {userMenuOpen && (
+                <div className="absolute bottom-full left-full ml-2 mb-2 bg-white border border-slate-200 rounded-lg shadow-lg p-2 min-w-[140px] z-50">
+                  <div className="px-3 py-2 border-b border-slate-100 mb-1">
+                    <p className="font-medium text-sm text-slate-800">Admin User</p>
+                    <p className="text-xs text-slate-500">Administrator</p>
+                  </div>
                   <button
-                    onClick={() => setUserMenuOpen(!userMenuOpen)}
-                    className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center text-lg hover:ring-2 hover:ring-blue-400 transition-all"
+                    className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      setLocation('/settings');
+                    }}
                   >
-                    😊
+                    <i className="fas fa-cog w-4"></i>
+                    <span>Settings</span>
                   </button>
                   <button
-                    className="text-slate-400 hover:text-red-600 text-sm transition-colors"
+                    className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
                     data-testid="button-logout-collapsed"
-                    onClick={logout}
-                    title="Sign Out"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      logout();
+                    }}
                   >
-                    <i className="fas fa-sign-out-alt"></i>
+                    <i className="fas fa-sign-out-alt w-4"></i>
+                    <span>Sign Out</span>
                   </button>
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <div>
-                  <p className="font-medium">Admin User</p>
-                  <p className="text-xs text-slate-500">Administrator</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
+              )}
+            </div>
           ) : (
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}

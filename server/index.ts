@@ -95,5 +95,6 @@ app.use((req, res, next) => {
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
+    console.log(`\n  ➜  Local:   \x1b[36mhttp://localhost:${port}/\x1b[0m\n`);
   });
 })();

@@ -1,7 +1,15 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, decimal, boolean, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, decimal, boolean, jsonb, index, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// Enum for timezone
+export const timezoneEnum = pgEnum('timezone_enum', [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles'
+]);
 
 // Session storage table for authentication
 export const sessions = pgTable(
@@ -61,12 +69,26 @@ export const systemLogs = pgTable("system_logs", {
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
+// Schedule settings table - must be defined before counties since counties references it
+export const scheduleSettings = pgTable("schedule_settings", {
+  id: varchar("id", { length: 255 }).primaryKey().default('global'),
+  name: text("name").notNull().default('Default Schedule'), // Human-readable name
+  hour: integer("hour").notNull().default(5),
+  minute: integer("minute").notNull().default(0),
+  timezone: text("timezone").notNull().default('America/New_York'),
+  skipWeekends: boolean("skip_weekends").notNull().default(false),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 export const counties = pgTable("counties", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   state: text("state").notNull(),
   isActive: boolean("is_active").notNull().default(true),
   config: jsonb("config").notNull(), // Stores scraping configuration
+  scheduleSettingsId: varchar("schedule_settings_id").references(() => scheduleSettings.id), // Which schedule to use
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -115,6 +137,11 @@ export const insertCountyRunSchema = createInsertSchema(countyRuns).omit({
   id: true,
 });
 
+export const insertScheduleSettingsSchema = createInsertSchema(scheduleSettings).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -133,6 +160,9 @@ export type County = typeof counties.$inferSelect;
 
 export type InsertCountyRun = z.infer<typeof insertCountyRunSchema>;
 export type CountyRun = typeof countyRuns.$inferSelect;
+
+export type InsertScheduleSettings = z.infer<typeof insertScheduleSettingsSchema>;
+export type ScheduleSettings = typeof scheduleSettings.$inferSelect;
 
 // County Configuration Interface
 export interface CountyConfig {

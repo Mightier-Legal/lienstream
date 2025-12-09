@@ -1,13 +1,14 @@
-import { 
+import {
   users,
   liens,
   automationRuns,
   systemLogs,
   counties,
   countyRuns,
-  type User, 
-  type InsertUser, 
-  type Lien, 
+  scheduleSettings,
+  type User,
+  type InsertUser,
+  type Lien,
   type InsertLien,
   type AutomationRun,
   type InsertAutomationRun,
@@ -16,7 +17,9 @@ import {
   type County,
   type InsertCounty,
   type CountyRun,
-  type InsertCountyRun
+  type InsertCountyRun,
+  type ScheduleSettings,
+  type InsertScheduleSettings
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, gte, sql, or } from "drizzle-orm";
@@ -63,20 +66,43 @@ async function retryDatabaseOperation<T>(
 }
 
 export class DatabaseStorage implements IStorage {
-  private scheduleConfig: { cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date } | null = null;
-
   constructor() {
     // Initialize default counties if not exists
     this.initializeDefaultCounties();
   }
 
-  // Schedule configuration (kept in memory for now)
-  async getScheduleConfig(): Promise<{ cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date } | null> {
-    return this.scheduleConfig;
+  // Schedule configuration (now persisted in database)
+  async getScheduleConfig(): Promise<ScheduleSettings | null> {
+    return await retryDatabaseOperation(async () => {
+      const [settings] = await db.select().from(scheduleSettings).where(eq(scheduleSettings.id, 'global'));
+      return settings || null;
+    }, 'getScheduleConfig');
   }
 
-  async saveScheduleConfig(config: { cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date }): Promise<void> {
-    this.scheduleConfig = config;
+  async saveScheduleConfig(config: InsertScheduleSettings): Promise<ScheduleSettings> {
+    return await retryDatabaseOperation(async () => {
+      // Upsert: update if exists, insert if not
+      const existing = await db.select().from(scheduleSettings).where(eq(scheduleSettings.id, config.id || 'global'));
+
+      if (existing.length > 0) {
+        const [updated] = await db.update(scheduleSettings)
+          .set({
+            ...config,
+            updatedAt: new Date()
+          })
+          .where(eq(scheduleSettings.id, config.id || 'global'))
+          .returning();
+        return updated;
+      } else {
+        const [inserted] = await db.insert(scheduleSettings)
+          .values({
+            ...config,
+            id: config.id || 'global'
+          })
+          .returning();
+        return inserted;
+      }
+    }, 'saveScheduleConfig');
   }
 
   // User methods

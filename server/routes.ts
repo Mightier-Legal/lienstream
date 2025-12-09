@@ -799,22 +799,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/automation/schedule", requireAuth, async (req, res) => {
     try {
-      const { hour, minute, timezone = 'ET' } = req.body;
-      
+      const {
+        hour,
+        minute,
+        timezone = 'America/New_York',
+        skipWeekends = false,
+        isEnabled = true
+      } = req.body;
+
       if (typeof hour !== 'number' || typeof minute !== 'number') {
         return res.status(400).json({ error: "Invalid schedule time" });
       }
-      
+
       if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
         return res.status(400).json({ error: "Invalid time values" });
       }
-      
-      const validTimezones = ['ET'];
+
+      const validTimezones = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'];
       if (!validTimezones.includes(timezone)) {
-        return res.status(400).json({ error: "Invalid timezone. Must be ET" });
+        return res.status(400).json({ error: "Invalid timezone" });
       }
-      
-      await scheduler.updateSchedule(hour, minute, timezone);
+
+      await scheduler.updateSchedule(hour, minute, timezone, skipWeekends, isEnabled);
       const scheduleInfo = await scheduler.getScheduleInfo();
       res.json(scheduleInfo);
     } catch (error) {

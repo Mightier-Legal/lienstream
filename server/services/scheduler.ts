@@ -21,8 +21,12 @@ export class SchedulerService {
   private airtableService: AirtableService;
   private isRunning = false;
   private scheduledTask: any | null = null;
-  private currentSchedule = '0 5 * * *'; // Default: 1:00 AM ET (5:00 AM UTC)
-  private currentTimezone = 'ET'; // Default: Eastern Time
+  private currentSchedule = '0 5 * * *'; // Default: 5:00 AM UTC (1:00 AM ET)
+  private currentTimezone = 'America/New_York'; // Default: Eastern Time
+  private currentHour = 1; // Local hour (1 AM ET)
+  private currentMinute = 0;
+  private skipWeekends = false;
+  private isEnabled = true;
   private currentScrapers: PuppeteerCountyScraper[] = [];
   private currentRunId: string | null = null;
   private shouldStop = false;
@@ -34,18 +38,33 @@ export class SchedulerService {
   }
 
   async start() {
-    // Load saved schedule if exists
+    // Load saved schedule from database if exists
     const savedSchedule = await storage.getScheduleConfig();
     if (savedSchedule) {
-      this.currentSchedule = savedSchedule.cronExpression;
-      this.currentTimezone = savedSchedule.timezone || 'ET';
+      this.currentTimezone = savedSchedule.timezone || 'America/New_York';
+      this.currentHour = savedSchedule.hour;
+      this.currentMinute = savedSchedule.minute;
+      this.skipWeekends = savedSchedule.skipWeekends;
+      this.isEnabled = savedSchedule.isEnabled;
+      // Build cron expression (timezone handled in scheduleTask)
+      this.currentSchedule = this.buildCronExpression(savedSchedule.hour, savedSchedule.minute, savedSchedule.skipWeekends);
     }
 
     // Schedule the task
     this.scheduleTask();
-    
+
     const scheduleTime = this.getHumanReadableSchedule();
     await Logger.info(`Scheduler started - ${scheduleTime}`, 'scheduler');
+  }
+
+  private buildCronExpression(hour: number, minute: number, skipWeekends: boolean): string {
+    // Build cron expression using the specified hour/minute directly
+    // Timezone is handled by node-cron's timezone option in scheduleTask()
+    if (skipWeekends) {
+      // Mon-Fri only (1-5)
+      return `${minute} ${hour} * * 1-5`;
+    }
+    return `${minute} ${hour} * * *`;
   }
 
   private scheduleTask() {
@@ -54,119 +73,118 @@ export class SchedulerService {
       this.scheduledTask.stop();
     }
 
-    // Create new scheduled task
-    // Important: node-cron runs in the system's local time (UTC on server)
+    // Create new scheduled task with timezone support
+    // node-cron will run at the specified time in the configured timezone
     this.scheduledTask = cron.schedule(this.currentSchedule, async () => {
       await this.runAutomation('scheduled');
+    }, {
+      timezone: this.currentTimezone
     });
   }
 
-  async updateSchedule(hour: number, minute: number, timezone: string = 'ET'): Promise<void> {
-    // Map timezone abbreviations to timezone names
-    const timezoneMap: { [key: string]: string } = {
-      'ET': 'America/New_York'
-    };
-    
-    const tzName = timezoneMap[timezone] || 'America/New_York';
-    
-    // Get current date in the specified timezone
-    const now = moment.tz(tzName);
-    
-    // Set the desired time
-    const scheduledTime = now.clone().hour(hour).minute(minute).second(0);
-    
-    // If the time has already passed today, schedule for tomorrow
-    if (scheduledTime.isBefore(now)) {
-      scheduledTime.add(1, 'day');
-    }
-    
-    // Convert to UTC for the cron job
-    const utcTime = scheduledTime.clone().utc();
-    const utcHour = utcTime.hour();
-    const utcMinute = utcTime.minute();
-    
-    // Create cron expression using UTC time (since server runs in UTC)
-    const cronExpression = `${utcMinute} ${utcHour} * * *`;
-    
+  async updateSchedule(hour: number, minute: number, timezone: string = 'America/New_York', skipWeekends: boolean = false, isEnabled: boolean = true): Promise<void> {
+    // Build the cron expression (timezone handled separately in scheduleTask)
+    const cronExpression = this.buildCronExpression(hour, minute, skipWeekends);
+
     // Validate cron expression
     if (!cron.validate(cronExpression)) {
       throw new Error('Invalid schedule time');
     }
 
-    // Store the schedule
+    // Store the schedule in memory
     this.currentSchedule = cronExpression;
     this.currentTimezone = timezone;
-    
-    // Save to storage with original local time
-    await storage.saveScheduleConfig({ 
-      cronExpression,
-      hour,  // Original hour in selected timezone
-      minute, // Original minute in selected timezone
+    this.currentHour = hour;
+    this.currentMinute = minute;
+    this.skipWeekends = skipWeekends;
+    this.isEnabled = isEnabled;
+
+    // Save to database
+    await storage.saveScheduleConfig({
+      id: 'global',
+      name: 'Default Schedule',
+      hour,
+      minute,
       timezone,
-      updatedAt: new Date()
+      skipWeekends,
+      isEnabled
     });
 
     // Reschedule the task
     this.scheduleTask();
-    
-    // Log both local time and UTC time for clarity
+
+    // Log the update
     const displayHour = hour === 0 ? 12 : (hour > 12 ? hour - 12 : hour);
     const isPM = hour >= 12;
-    const localTime = `${displayHour}:${minute.toString().padStart(2, '0')} ${isPM ? 'PM' : 'AM'} ${timezone}`;
-    const utcTimeStr = `${utcHour}:${utcMinute.toString().padStart(2, '0')} UTC`;
-    await Logger.info(`Schedule updated to ${localTime} (runs at ${utcTimeStr})`, 'scheduler');
+    const tzAbbrev = this.getTimezoneAbbreviation(timezone);
+    const localTime = `${displayHour}:${minute.toString().padStart(2, '0')} ${isPM ? 'PM' : 'AM'} ${tzAbbrev}`;
+    const weekdayStr = skipWeekends ? ' (weekdays only)' : '';
+    await Logger.info(`Schedule updated to ${localTime}${weekdayStr}`, 'scheduler');
   }
 
-  async getScheduleInfo(): Promise<{ cronExpression: string; hour: number; minute: number; timezone: string; humanReadable: string }> {
-    // Get the saved schedule config to return the original local time
+  private getTimezoneAbbreviation(timezone: string): string {
+    const abbrevMap: { [key: string]: string } = {
+      'America/New_York': 'ET',
+      'America/Chicago': 'CT',
+      'America/Denver': 'MT',
+      'America/Los_Angeles': 'PT'
+    };
+    return abbrevMap[timezone] || timezone;
+  }
+
+  async getScheduleInfo(): Promise<{
+    id: string;
+    name: string;
+    hour: number;
+    minute: number;
+    timezone: string;
+    skipWeekends: boolean;
+    isEnabled: boolean;
+    humanReadable: string;
+  }> {
+    // Get the saved schedule config from database
     const savedConfig = await storage.getScheduleConfig();
-    
-    if (savedConfig && savedConfig.hour !== undefined && savedConfig.minute !== undefined) {
+
+    if (savedConfig) {
       return {
-        cronExpression: this.currentSchedule,
+        id: savedConfig.id,
+        name: savedConfig.name,
         hour: savedConfig.hour,
         minute: savedConfig.minute,
-        timezone: this.currentTimezone,
+        timezone: savedConfig.timezone,
+        skipWeekends: savedConfig.skipWeekends,
+        isEnabled: savedConfig.isEnabled,
         humanReadable: this.getHumanReadableSchedule()
       };
     }
-    
-    // Fallback: convert UTC cron time back to local timezone
-    const parts = this.currentSchedule.split(' ');
-    const utcMinute = parseInt(parts[0]);
-    const utcHour = parseInt(parts[1]);
-    
-    const timezoneMap: { [key: string]: string } = {
-      'PT': 'America/Los_Angeles',
-      'CT': 'America/Chicago',
-      'ET': 'America/New_York'
-    };
-    
-    const tzName = timezoneMap[this.currentTimezone] || 'America/Los_Angeles';
-    const utcTime = moment.utc().hour(utcHour).minute(utcMinute);
-    const localTime = utcTime.tz(tzName);
-    
+
+    // Return defaults if no config exists
     return {
-      cronExpression: this.currentSchedule,
-      hour: localTime.hour(),
-      minute: localTime.minute(),
+      id: 'global',
+      name: 'Default Schedule',
+      hour: this.currentHour,
+      minute: this.currentMinute,
       timezone: this.currentTimezone,
+      skipWeekends: this.skipWeekends,
+      isEnabled: this.isEnabled,
       humanReadable: this.getHumanReadableSchedule()
     };
   }
 
   private getHumanReadableSchedule(): string {
-    const parts = this.currentSchedule.split(' ');
-    const minute = parseInt(parts[0]);
-    const hour = parseInt(parts[1]);
-    
+    // Use local time settings instead of parsing cron
+    const hour = this.currentHour;
+    const minute = this.currentMinute;
+
     // Convert to 12-hour format with AM/PM
     const isPM = hour >= 12;
     let displayHour = hour % 12;
     if (displayHour === 0) displayHour = 12; // Handle midnight (0) and noon (12)
-    
-    const timeStr = `${displayHour}:${minute.toString().padStart(2, '0')} ${isPM ? 'PM' : 'AM'}`;
-    return `daily runs at ${timeStr}`;
+
+    const tzAbbrev = this.getTimezoneAbbreviation(this.currentTimezone);
+    const timeStr = `${displayHour}:${minute.toString().padStart(2, '0')} ${isPM ? 'PM' : 'AM'} ${tzAbbrev}`;
+    const frequency = this.skipWeekends ? 'weekdays' : 'daily';
+    return `${frequency} at ${timeStr}`;
   }
 
   async runAutomation(type: 'scheduled' | 'manual', fromDate?: string, toDate?: string, limit?: number): Promise<void> {

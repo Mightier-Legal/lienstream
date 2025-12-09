@@ -1,7 +1,7 @@
-import { 
-  type User, 
-  type InsertUser, 
-  type Lien, 
+import {
+  type User,
+  type InsertUser,
+  type Lien,
   type InsertLien,
   type AutomationRun,
   type InsertAutomationRun,
@@ -10,14 +10,16 @@ import {
   type County,
   type InsertCounty,
   type CountyRun,
-  type InsertCountyRun
+  type InsertCountyRun,
+  type ScheduleSettings,
+  type InsertScheduleSettings
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
-  // Schedule configuration
-  getScheduleConfig(): Promise<{ cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date } | null>;
-  saveScheduleConfig(config: { cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date }): Promise<void>;
+  // Schedule configuration (now persisted in database)
+  getScheduleConfig(): Promise<ScheduleSettings | null>;
+  saveScheduleConfig(config: InsertScheduleSettings): Promise<ScheduleSettings>;
   
   // User methods
   getUser(id: string): Promise<User | undefined>;
@@ -85,7 +87,7 @@ export class MemStorage implements IStorage {
   private systemLogs: Map<string, SystemLog>;
   private counties: Map<string, County>;
   private countyRuns: Map<string, CountyRun>;
-  private scheduleConfig: { cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date } | null = null;
+  private scheduleConfig: ScheduleSettings | null = null;
   private failedLiens: any[] = [];
 
   constructor() {
@@ -95,18 +97,30 @@ export class MemStorage implements IStorage {
     this.systemLogs = new Map();
     this.counties = new Map();
     this.countyRuns = new Map();
-    
+
     // Initialize with Arizona counties by default
     this.initializeDefaultCounties();
   }
 
   // Schedule configuration
-  async getScheduleConfig(): Promise<{ cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date } | null> {
+  async getScheduleConfig(): Promise<ScheduleSettings | null> {
     return this.scheduleConfig;
   }
 
-  async saveScheduleConfig(config: { cronExpression: string; hour: number; minute: number; timezone: string; updatedAt: Date }): Promise<void> {
-    this.scheduleConfig = config;
+  async saveScheduleConfig(config: InsertScheduleSettings): Promise<ScheduleSettings> {
+    const settings: ScheduleSettings = {
+      id: config.id || 'global',
+      name: config.name || 'Default Schedule',
+      hour: config.hour ?? 5,
+      minute: config.minute ?? 0,
+      timezone: config.timezone || 'America/New_York',
+      skipWeekends: config.skipWeekends ?? false,
+      isEnabled: config.isEnabled ?? true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.scheduleConfig = settings;
+    return settings;
   }
 
   private initializeDefaultCounties() {
