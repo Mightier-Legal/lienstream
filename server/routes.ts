@@ -572,20 +572,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const limit = parseInt(req.query.limit as string) || 20;
       const date = req.query.date as string;
-      
+
       let logs;
       if (date) {
-        // Filter logs by date
+        // Filter logs by date using Eastern timezone for consistency
         const allLogs = await storage.getRecentSystemLogs(10000); // Get many logs
-        const targetDate = new Date(date);
         logs = allLogs.filter(log => {
           const logDate = new Date(log.timestamp);
-          return logDate.toDateString() === targetDate.toDateString();
+          // Format both dates in Eastern timezone for comparison
+          const logDateStr = logDate.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // YYYY-MM-DD format
+          return logDateStr === date;
         });
       } else {
         logs = await storage.getRecentSystemLogs(limit);
       }
-      
+
       res.json(logs);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch system logs" });
