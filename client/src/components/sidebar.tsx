@@ -31,6 +31,7 @@ export function Sidebar() {
   const menuItems = [
     { path: "/", icon: "fas fa-tachometer-alt", label: "Dashboard" },
     { path: "/operations", icon: "fas fa-cogs", label: "Operations" },
+    { path: "/operations/logs", icon: "fas fa-list-alt", label: "System Logs", indent: true },
     { path: "/liens", icon: "fas fa-file-alt", label: "Liens" },
     { path: "/runs", icon: "fas fa-history", label: "Run History" },
     { path: "/counties", icon: "fas fa-map", label: "Counties" },
@@ -115,17 +116,18 @@ export function Sidebar() {
                   </TooltipContent>
                 </Tooltip>
               ) : (
-                <Link 
+                <Link
                   href={item.path}
                   className={cn(
                     "flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-colors",
-                    location === item.path 
-                      ? "bg-blue-50 text-blue-700" 
-                      : "text-slate-600 hover:bg-slate-50"
+                    location === item.path
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-slate-600 hover:bg-slate-50",
+                    (item as any).indent && "ml-4 text-sm"
                   )}
                   data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                 >
-                  <i className={`${item.icon} w-5`}></i>
+                  <i className={cn(`${item.icon} w-5`, (item as any).indent && "text-xs")}></i>
                   <span>{item.label}</span>
                 </Link>
               )}

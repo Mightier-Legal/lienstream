@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Lien, SystemLog } from "@shared/schema";
+import { Link } from "wouter";
 
 interface AutomationStatus {
   isRunning: boolean;
@@ -868,10 +869,12 @@ export default function Operations() {
                 <i className="fas fa-exclamation-circle text-orange-600"></i>
                 Recent Errors (Last 24h)
               </CardTitle>
-              <Button variant="outline" size="sm" onClick={() => setShowLogsSheet(true)}>
-                <i className="fas fa-list mr-2"></i>
-                View All Logs
-              </Button>
+              <Link href="/operations/logs">
+                <Button variant="outline" size="sm">
+                  <i className="fas fa-list mr-2"></i>
+                  View All Logs
+                </Button>
+              </Link>
             </div>
           </CardHeader>
           <CardContent>

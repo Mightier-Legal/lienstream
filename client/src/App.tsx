@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "@/components/sidebar";
 import Dashboard from "@/pages/dashboard";
 import Operations from "@/pages/operations";
+import SystemLogs from "@/pages/system-logs";
 import Liens from "@/pages/liens";
 import Counties from "@/pages/counties";
 import Runs from "@/pages/runs";
@@ -41,6 +42,7 @@ function AuthenticatedApp() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/operations" component={Operations} />
+        <Route path="/operations/logs" component={SystemLogs} />
         <Route path="/liens" component={Liens} />
         <Route path="/counties" component={Counties} />
         <Route path="/runs" component={Runs} />
