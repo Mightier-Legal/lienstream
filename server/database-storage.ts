@@ -292,6 +292,10 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(counties).where(eq(counties.isActive, true));
   }
 
+  async getAllCounties(): Promise<County[]> {
+    return await db.select().from(counties);
+  }
+
   async createCounty(county: InsertCounty): Promise<County> {
     const [newCounty] = await db.insert(counties).values({
       ...county

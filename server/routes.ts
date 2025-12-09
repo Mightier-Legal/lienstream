@@ -833,7 +833,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // County management routes
   app.get("/api/counties", requireAuth, async (req, res) => {
     try {
-      const counties = await storage.getActiveCounties();
+      // Return ALL counties for management page, not just active ones
+      const counties = await storage.getAllCounties();
       res.json(counties);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch counties" });

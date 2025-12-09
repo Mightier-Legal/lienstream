@@ -52,6 +52,7 @@ export interface IStorage {
   getCounty(id: string): Promise<County | undefined>;
   getCountiesByState(state: string): Promise<County[]>;
   getActiveCounties(): Promise<County[]>;
+  getAllCounties(): Promise<County[]>;
   createCounty(county: InsertCounty): Promise<County>;
   updateCounty(id: string, updates: Partial<County>): Promise<void>;
   
@@ -444,6 +445,10 @@ export class MemStorage implements IStorage {
 
   async getActiveCounties(): Promise<County[]> {
     return Array.from(this.counties.values()).filter(county => county.isActive);
+  }
+
+  async getAllCounties(): Promise<County[]> {
+    return Array.from(this.counties.values());
   }
 
   async createCounty(insertCounty: InsertCounty): Promise<County> {
