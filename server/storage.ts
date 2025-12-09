@@ -12,7 +12,9 @@ import {
   type CountyRun,
   type InsertCountyRun,
   type ScheduleSettings,
-  type InsertScheduleSettings
+  type InsertScheduleSettings,
+  type AppSettings,
+  type InsertAppSettings
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -79,6 +81,12 @@ export interface IStorage {
   findDuplicateRecordingNumbers(): Promise<{recordingNumber: string; count: number; statuses: string[]}[]>;
   getLiensCountByStatus(): Promise<{status: string; count: number}[]>;
   bulkUpdateLienStatus(lienIds: string[], newStatus: string): Promise<number>;
+
+  // App Settings methods
+  getAllAppSettings(): Promise<AppSettings[]>;
+  getAppSetting(key: string): Promise<AppSettings | undefined>;
+  upsertAppSetting(setting: InsertAppSettings): Promise<AppSettings>;
+  deleteAppSetting(key: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -586,6 +594,39 @@ export class MemStorage implements IStorage {
       }
     }
     return updated;
+  }
+
+  // App Settings methods (in-memory implementation)
+  private appSettings: Map<string, AppSettings> = new Map();
+
+  async getAllAppSettings(): Promise<AppSettings[]> {
+    return Array.from(this.appSettings.values()).sort((a, b) => a.key.localeCompare(b.key));
+  }
+
+  async getAppSetting(key: string): Promise<AppSettings | undefined> {
+    return this.appSettings.get(key);
+  }
+
+  async upsertAppSetting(setting: InsertAppSettings): Promise<AppSettings> {
+    const existing = this.appSettings.get(setting.key);
+    const now = new Date();
+
+    const appSetting: AppSettings = {
+      id: existing?.id || randomUUID(),
+      key: setting.key,
+      value: setting.value,
+      isSecret: setting.isSecret ?? false,
+      description: setting.description ?? null,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now
+    };
+
+    this.appSettings.set(setting.key, appSetting);
+    return appSetting;
+  }
+
+  async deleteAppSetting(key: string): Promise<void> {
+    this.appSettings.delete(key);
   }
 }
 

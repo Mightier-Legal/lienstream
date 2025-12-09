@@ -6,6 +6,7 @@ import {
   counties,
   countyRuns,
   scheduleSettings,
+  appSettings,
   type User,
   type InsertUser,
   type Lien,
@@ -19,7 +20,9 @@ import {
   type CountyRun,
   type InsertCountyRun,
   type ScheduleSettings,
-  type InsertScheduleSettings
+  type InsertScheduleSettings,
+  type AppSettings,
+  type InsertAppSettings
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, gte, sql, or } from "drizzle-orm";
@@ -536,5 +539,52 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     return result.length;
+  }
+
+  // App Settings methods
+  async getAllAppSettings(): Promise<AppSettings[]> {
+    return await retryDatabaseOperation(async () => {
+      return await db.select().from(appSettings).orderBy(appSettings.key);
+    }, 'getAllAppSettings');
+  }
+
+  async getAppSetting(key: string): Promise<AppSettings | undefined> {
+    return await retryDatabaseOperation(async () => {
+      const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+      return setting;
+    }, `getAppSetting(${key})`);
+  }
+
+  async upsertAppSetting(setting: InsertAppSettings): Promise<AppSettings> {
+    return await retryDatabaseOperation(async () => {
+      const existing = await db.select().from(appSettings).where(eq(appSettings.key, setting.key));
+
+      if (existing.length > 0) {
+        const [updated] = await db.update(appSettings)
+          .set({
+            value: setting.value,
+            isSecret: setting.isSecret,
+            description: setting.description,
+            updatedAt: new Date()
+          })
+          .where(eq(appSettings.key, setting.key))
+          .returning();
+        return updated;
+      } else {
+        const [inserted] = await db.insert(appSettings)
+          .values({
+            ...setting,
+            id: randomUUID()
+          })
+          .returning();
+        return inserted;
+      }
+    }, `upsertAppSetting(${setting.key})`);
+  }
+
+  async deleteAppSetting(key: string): Promise<void> {
+    await retryDatabaseOperation(async () => {
+      await db.delete(appSettings).where(eq(appSettings.key, key));
+    }, `deleteAppSetting(${key})`);
   }
 }

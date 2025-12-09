@@ -46,13 +46,26 @@ export class AirtableService {
         `https://${process.env.REPLIT_DEV_DOMAIN}` : 
         'http://localhost:5000';
       
-      const records: AirtableRecord[] = liens.map((lien) => {
-        // Get County record ID from environment or omit if not configured
-        const countyRecordId = process.env.AIRTABLE_COUNTY_RECORD_ID;
-        
+      // Pre-fetch counties to get airtableCountyId for each lien
+      const countyCache = new Map<string, string | null>();
+
+      const records: AirtableRecord[] = [];
+      for (const lien of liens) {
+        // Look up county's airtableCountyId (with caching)
+        let airtableCountyId: string | null = null;
+        if (lien.countyId) {
+          if (countyCache.has(lien.countyId)) {
+            airtableCountyId = countyCache.get(lien.countyId) || null;
+          } else {
+            const county = await storage.getCounty(lien.countyId);
+            airtableCountyId = county?.airtableCountyId || null;
+            countyCache.set(lien.countyId, airtableCountyId);
+          }
+        }
+
         // Determine the PDF URL to use
         let pdfAttachment = null;
-        
+
         // PRIORITY 1: Check pdfUrl field (local stored PDF URL from database)
         if (lien.pdfUrl && lien.pdfUrl.includes('/api/pdf/')) {
           pdfAttachment = [{
@@ -84,30 +97,30 @@ export class AirtableService {
           Logger.error(`NO LOCAL PDF AVAILABLE for ${lien.recordingNumber} - cannot sync to Airtable without PDF`, 'airtable');
           // Don't set pdfAttachment - we'll filter these out
         }
-        
+
         // Convert recording number to number
         const recordNumber = parseInt(lien.recordingNumber, 10);
-        
+
         // Build fields object dynamically
         const fields: any = {
           'Record Number': recordNumber // Convert to number for Airtable number field
         };
-        
+
         // Only include PDF Link if we have a valid PDF attachment
         if (pdfAttachment) {
           fields['PDF Link'] = pdfAttachment;
         }
-        
-        // Only include County field if we have a valid record ID
-        if (countyRecordId) {
-          fields['County'] = [countyRecordId]; // Linked record field - array of record IDs
-          Logger.info(`Using County record ID: ${countyRecordId}`, 'airtable');
+
+        // Only include County field if we have a valid airtableCountyId from the county record
+        if (airtableCountyId) {
+          fields['County'] = [airtableCountyId]; // Linked record field - array of record IDs
+          Logger.info(`Using County airtableCountyId for ${lien.recordingNumber}: ${airtableCountyId}`, 'airtable');
         } else {
-          Logger.warning('County record ID not configured - omitting County field', 'airtable');
+          Logger.warning(`County airtableCountyId not configured for lien ${lien.recordingNumber} (countyId: ${lien.countyId}) - omitting County field`, 'airtable');
         }
-        
-        return { fields, hasPdf: !!pdfAttachment, recordingNumber: lien.recordingNumber };
-      });
+
+        records.push({ fields, hasPdf: !!pdfAttachment, recordingNumber: lien.recordingNumber });
+      }
       
       // Filter out records without PDFs - PDFs are ESSENTIAL
       const recordsWithPdfs = records.filter(r => r.hasPdf);

@@ -1007,6 +1007,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // App Settings routes
+  app.get("/api/settings", requireAuth, async (req, res) => {
+    try {
+      const settings = await storage.getAllAppSettings();
+      // Mask secret values in response
+      const maskedSettings = settings.map(s => ({
+        ...s,
+        value: s.isSecret ? '••••••••' : s.value
+      }));
+      res.json(maskedSettings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.get("/api/settings/:key", requireAuth, async (req, res) => {
+    try {
+      const { key } = req.params;
+      const setting = await storage.getAppSetting(key);
+      if (!setting) {
+        return res.status(404).json({ error: "Setting not found" });
+      }
+      // Mask secret value
+      res.json({
+        ...setting,
+        value: setting.isSecret ? '••••••••' : setting.value
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch setting" });
+    }
+  });
+
+  app.post("/api/settings", requireAuth, async (req, res) => {
+    try {
+      const { key, value, isSecret, description } = req.body;
+
+      if (!key || value === undefined) {
+        return res.status(400).json({ error: "Key and value are required" });
+      }
+
+      const setting = await storage.upsertAppSetting({
+        key,
+        value,
+        isSecret: isSecret ?? false,
+        description: description ?? null
+      });
+
+      res.json({
+        ...setting,
+        value: setting.isSecret ? '••••••••' : setting.value
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save setting" });
+    }
+  });
+
+  app.delete("/api/settings/:key", requireAuth, async (req, res) => {
+    try {
+      const { key } = req.params;
+      await storage.deleteAppSetting(key);
+      res.json({ message: "Setting deleted" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete setting" });
+    }
+  });
+
+  // Get unmasked value for a specific setting (for editing)
+  app.get("/api/settings/:key/reveal", requireAuth, async (req, res) => {
+    try {
+      const { key } = req.params;
+      const setting = await storage.getAppSetting(key);
+      if (!setting) {
+        return res.status(404).json({ error: "Setting not found" });
+      }
+      // Return actual value (unmasked)
+      res.json(setting);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch setting" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
