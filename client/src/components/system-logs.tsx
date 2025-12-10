@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { SystemLog } from "@shared/schema";
 
 export function SystemLogs() {
@@ -13,7 +14,13 @@ export function SystemLogs() {
         <div className="p-6 border-b border-slate-200">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-slate-800">System Activity</h3>
-            <div className="animate-pulse w-6 h-6 bg-slate-200 rounded"></div>
+            <Link
+              href="/operations/logs"
+              className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1.5 hover:underline"
+            >
+              <span>View All Logs</span>
+              <i className="fas fa-arrow-right text-xs"></i>
+            </Link>
           </div>
         </div>
         <div className="p-6">
@@ -39,6 +46,13 @@ export function SystemLogs() {
         <div className="p-6 border-b border-slate-200">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-slate-800">System Activity</h3>
+            <Link
+              href="/operations/logs"
+              className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1.5 hover:underline"
+            >
+              <span>View All Logs</span>
+              <i className="fas fa-arrow-right text-xs"></i>
+            </Link>
           </div>
         </div>
         <div className="p-12 text-center">
@@ -89,6 +103,13 @@ export function SystemLogs() {
       <div className="p-6 border-b border-slate-200">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-800">System Activity</h3>
+          <Link
+            href="/operations/logs"
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1.5 hover:underline"
+          >
+            <span>View All Logs</span>
+            <i className="fas fa-arrow-right text-xs"></i>
+          </Link>
         </div>
       </div>
       <div className="p-6">

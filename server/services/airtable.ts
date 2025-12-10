@@ -2,6 +2,7 @@ import { Logger } from './logger';
 import { Lien } from '@shared/schema';
 import { storage } from '../storage';
 import { pdfStorage } from './pdf-storage';
+import { getPublicBaseUrl } from './scrapers';
 
 interface AirtableRecord {
   fields: {
@@ -40,11 +41,9 @@ export class AirtableService {
 
     try {
       await Logger.info(`Starting Airtable sync for ${liens.length} liens to base: ${this.baseId}, table: ${this.tableId}`, 'airtable');
-      
+
       // Get base URL for serving PDFs
-      const baseUrl = process.env.REPLIT_DEV_DOMAIN ? 
-        `https://${process.env.REPLIT_DEV_DOMAIN}` : 
-        'http://localhost:5000';
+      const baseUrl = await getPublicBaseUrl();
       
       // Pre-fetch counties to get airtableCountyId for each lien
       const countyCache = new Map<string, string | null>();

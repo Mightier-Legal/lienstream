@@ -27,6 +27,7 @@ interface CountyConfig {
 import { Logger } from './logger';
 import { storage } from '../storage';
 import { pdfStorage } from './pdf-storage';
+import { getPublicBaseUrl } from './scrapers';
 
 interface ScrapedLien {
   recordingNumber: string;
@@ -1181,9 +1182,7 @@ export class PuppeteerCountyScraper extends CountyScraper {
           if (pdfBuffer) {
             // Store PDF locally and get serving URL
             const pdfId = pdfStorage.storePdf(pdfBuffer, recordingNumber);
-            const baseUrl = process.env.REPLIT_DEV_DOMAIN ? 
-              `https://${process.env.REPLIT_DEV_DOMAIN}` : 
-              'http://localhost:5000';
+            const baseUrl = await getPublicBaseUrl();
             const localPdfUrl = `${baseUrl}/api/pdf/${pdfId}`;
             
             await Logger.info(`📦 Stored PDF locally: ${localPdfUrl}`, 'county-scraper');

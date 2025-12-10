@@ -202,7 +202,7 @@ export class MaricopaLegacyScraper extends BaseScraper {
             const lienInfo: ScrapedLien = {
               recordingNumber,
               recordingDate: lienData.recordingDate ? new Date(lienData.recordingDate) : new Date(),
-              documentUrl: actualPdfUrl,
+              documentUrl: actualPdfUrl, // Will be updated with local URL below
               pdfBuffer: pdfBuffer,
               grantor: lienData.grantor,
               grantee: lienData.grantee,
@@ -210,10 +210,13 @@ export class MaricopaLegacyScraper extends BaseScraper {
               amount: lienData.amount
             };
 
-            liens.push(lienInfo);
+            // Save immediately to prevent data loss and get local PDF URL
+            const localPdfUrl = await this.saveLienWithPdf(lienInfo, pdfBuffer);
 
-            // Save immediately to prevent data loss
-            await this.saveLienWithPdf(lienInfo, pdfBuffer);
+            // Update the lien's documentUrl to the local URL for scheduler/Airtable sync
+            lienInfo.documentUrl = localPdfUrl;
+
+            liens.push(lienInfo);
 
             await Logger.success(`Downloaded and stored PDF for lien ${recordingNumber} (${pdfBuffer.length} bytes)`, 'maricopa-legacy');
           } else {

@@ -20,7 +20,7 @@
  */
 
 // Base scraper and types
-export { BaseScraper, mergeConfigs, deepMerge } from './base-scraper';
+export { BaseScraper, mergeConfigs, deepMerge, getPublicBaseUrl } from './base-scraper';
 export type { MergedScraperConfig, ScrapedLien } from './base-scraper';
 
 // Platform-specific scrapers

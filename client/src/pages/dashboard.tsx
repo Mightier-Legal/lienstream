@@ -1,7 +1,6 @@
 import { StatusCards } from "@/components/status-cards";
 import { AutomationStatus } from "@/components/automation-status";
 import { SystemLogs } from "@/components/system-logs";
-import { ScheduleSettings } from "@/components/schedule-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -149,33 +148,20 @@ export default function Dashboard() {
       </header>
       
       {/* Dashboard Content */}
-      <div className="p-6 space-y-8">
+      <div className="p-6 space-y-6">
         {/* Section 1: Key Metrics - Most important info at the top */}
         <section>
           <StatusCards />
         </section>
-        
-        {/* Section 2: Automation Controls - Primary actions and status */}
-        <section className="space-y-4">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="h-8 w-1 bg-blue-600 rounded-full"></div>
-            <h3 className="text-lg font-semibold text-slate-800">Automation Controls</h3>
-          </div>
+
+        {/* Section 2: Processing Pipeline */}
+        <section>
           <AutomationStatus />
         </section>
-        
-        {/* Section 3: Configuration & Monitoring - Less frequently accessed */}
-        <section className="space-y-4">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="h-8 w-1 bg-purple-600 rounded-full"></div>
-            <h3 className="text-lg font-semibold text-slate-800">Configuration & Monitoring</h3>
-          </div>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <ScheduleSettings />
-            <div className="xl:col-span-1">
-              <SystemLogs />
-            </div>
-          </div>
+
+        {/* Section 3: System Activity - Full width */}
+        <section>
+          <SystemLogs />
         </section>
       </div>
     </main>

@@ -6,6 +6,27 @@ import { pdfStorage } from '../pdf-storage';
 import { County, ScraperPlatform } from '../../../shared/schema';
 
 /**
+ * Get the public base URL for serving PDFs
+ * Priority: PUBLIC_URL app setting > REPLIT_DEV_DOMAIN env > localhost fallback
+ */
+export async function getPublicBaseUrl(): Promise<string> {
+  // First check app settings for PUBLIC_URL
+  const publicUrlSetting = await storage.getAppSetting('PUBLIC_URL');
+  if (publicUrlSetting?.value) {
+    // Remove trailing slash if present
+    return publicUrlSetting.value.replace(/\/$/, '');
+  }
+
+  // Fall back to Replit dev domain (for dev mode)
+  if (process.env.REPLIT_DEV_DOMAIN) {
+    return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+  }
+
+  // Final fallback for local development
+  return 'http://localhost:5000';
+}
+
+/**
  * Merged configuration type - platform defaults + county overrides
  */
 export interface MergedScraperConfig {
@@ -589,13 +610,12 @@ export abstract class BaseScraper {
 
   /**
    * Store PDF locally and save lien to database
+   * Returns the local PDF URL for updating the lien object
    */
-  protected async saveLienWithPdf(lienData: ScrapedLien, pdfBuffer: Buffer): Promise<void> {
+  protected async saveLienWithPdf(lienData: ScrapedLien, pdfBuffer: Buffer): Promise<string> {
     // Store PDF locally
     const pdfId = pdfStorage.storePdf(pdfBuffer, lienData.recordingNumber);
-    const baseUrl = process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : 'http://localhost:5000';
+    const baseUrl = await getPublicBaseUrl();
     const localPdfUrl = `${baseUrl}/api/pdf/${pdfId}`;
 
     await Logger.info(`Stored PDF locally: ${localPdfUrl}`, 'scraper');
@@ -619,6 +639,8 @@ export abstract class BaseScraper {
     } catch (saveError) {
       await Logger.error(`Failed to save lien ${lienData.recordingNumber}: ${saveError}`, 'scraper');
     }
+
+    return localPdfUrl;
   }
 
   /**
