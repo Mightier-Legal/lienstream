@@ -19,24 +19,42 @@ interface AirtableRecord {
 }
 
 export class AirtableService {
-  private apiKey: string;
-  private baseId: string;
-  private tableId: string;
+  private apiKey: string = '';
+  private baseId: string = '';
+  private tableId: string = '';
 
   constructor() {
-    this.apiKey = process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_TOKEN || '';
-    this.baseId = process.env.AIRTABLE_BASE_ID || '';
-    this.tableId = process.env.AIRTABLE_TABLE_ID || '';
-    
-    if (!this.apiKey || !this.baseId) {
-      Logger.warning('Airtable credentials not configured', 'airtable');
-    }
+    // Credentials will be loaded from app settings in loadCredentials()
   }
 
-  async syncLiensToAirtable(liens: any[]): Promise<void> {
+  /**
+   * Load Airtable credentials from app settings (database) first, then fall back to env vars
+   */
+  private async loadCredentials(): Promise<void> {
+    // Try app settings first
+    const apiKeySetting = await storage.getAppSetting('AIRTABLE_API_KEY');
+    const baseIdSetting = await storage.getAppSetting('AIRTABLE_BASE_ID');
+    const tableIdSetting = await storage.getAppSetting('AIRTABLE_TABLE_ID');
+
+    this.apiKey = apiKeySetting?.value || process.env.AIRTABLE_API_KEY || process.env.AIRTABLE_TOKEN || '';
+    this.baseId = baseIdSetting?.value || process.env.AIRTABLE_BASE_ID || '';
+    this.tableId = tableIdSetting?.value || process.env.AIRTABLE_TABLE_ID || '';
+
+    console.log(`[AIRTABLE] Loaded credentials - API Key: ${this.apiKey ? '***' + this.apiKey.slice(-4) : 'MISSING'}, Base ID: ${this.baseId || 'MISSING'}, Table ID: ${this.tableId || 'MISSING'}`);
+  }
+
+  async syncLiensToAirtable(liens: any[]): Promise<{ synced: number; failed: number; errors: string[] }> {
+    const result = { synced: 0, failed: 0, errors: [] as string[] };
+
+    // Load credentials from app settings before each sync
+    await this.loadCredentials();
+
     if (!this.apiKey || !this.baseId || !this.tableId) {
-      await Logger.error('Airtable not configured - skipping sync', 'airtable');
-      return;
+      const errorMsg = `Airtable not configured - missing: ${!this.apiKey ? 'API_KEY ' : ''}${!this.baseId ? 'BASE_ID ' : ''}${!this.tableId ? 'TABLE_ID' : ''}`;
+      await Logger.error(errorMsg, 'airtable');
+      console.error(`[AIRTABLE ERROR] ${errorMsg}`);
+      result.errors.push(errorMsg);
+      throw new Error(errorMsg);
     }
 
     try {
@@ -130,8 +148,12 @@ export class AirtableService {
       }
       
       if (recordsWithPdfs.length === 0) {
-        Logger.error('No liens have PDFs - aborting Airtable sync', 'airtable');
-        return;
+        const errorMsg = 'No liens have PDFs - aborting Airtable sync';
+        Logger.error(errorMsg, 'airtable');
+        console.error(`[AIRTABLE ERROR] ${errorMsg}`);
+        result.errors.push(errorMsg);
+        result.failed = liens.length;
+        throw new Error(errorMsg);
       }
       
       // Convert back to just fields for Airtable
@@ -194,15 +216,25 @@ export class AirtableService {
           syncedCount += batch.length;
           await Logger.info(`Synced batch to Airtable: ${batch.length} records`, 'airtable');
           
-        } catch (error) {
-          await Logger.error(`Failed to sync batch to Airtable: ${error}`, 'airtable');
+        } catch (error: any) {
+          const errorMsg = `Failed to sync batch to Airtable: ${error.message || error}`;
+          await Logger.error(errorMsg, 'airtable');
+          console.error(`[AIRTABLE ERROR] ${errorMsg}`);
+          result.errors.push(errorMsg);
+          result.failed += batch.length;
+          // Re-throw to stop processing - don't silently continue
+          throw error;
         }
       }
 
+      result.synced = syncedCount;
       await Logger.success(`Successfully synced ${syncedCount} liens to Airtable`, 'airtable');
+      console.log(`[AIRTABLE SUCCESS] Synced ${syncedCount} liens`);
+      return result;
 
-    } catch (error) {
-      await Logger.error(`Airtable sync failed: ${error}`, 'airtable');
+    } catch (error: any) {
+      await Logger.error(`Airtable sync failed: ${error.message || error}`, 'airtable');
+      console.error(`[AIRTABLE ERROR] Sync failed: ${error.message || error}`);
       throw error;
     }
   }
