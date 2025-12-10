@@ -830,6 +830,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Scraper Platform routes
+  app.get("/api/scraper-platforms", requireAuth, async (req, res) => {
+    try {
+      const platforms = await storage.getAllScraperPlatforms();
+      res.json(platforms);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch scraper platforms" });
+    }
+  });
+
+  app.get("/api/scraper-platforms/active", requireAuth, async (req, res) => {
+    try {
+      const platforms = await storage.getActiveScraperPlatforms();
+      res.json(platforms);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch active scraper platforms" });
+    }
+  });
+
+  app.get("/api/scraper-platforms/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const platform = await storage.getScraperPlatform(id);
+      if (!platform) {
+        return res.status(404).json({ error: "Scraper platform not found" });
+      }
+      res.json(platform);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch scraper platform" });
+    }
+  });
+
+  app.post("/api/scraper-platforms", requireAuth, async (req, res) => {
+    try {
+      const platform = await storage.createScraperPlatform(req.body);
+      res.json(platform);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create scraper platform" });
+    }
+  });
+
+  app.patch("/api/scraper-platforms/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.updateScraperPlatform(id, req.body);
+      res.json({ message: "Scraper platform updated successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update scraper platform" });
+    }
+  });
+
   // County management routes
   app.get("/api/counties", requireAuth, async (req, res) => {
     try {

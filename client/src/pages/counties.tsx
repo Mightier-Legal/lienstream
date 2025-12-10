@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { County, CountyConfig } from "@shared/schema";
+import { County, CountyConfig, ScraperPlatform } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function Counties() {
   const { toast } = useToast();
@@ -27,6 +34,10 @@ export default function Counties() {
   const { data: counties, isLoading } = useQuery<County[]>({
     queryKey: ['/api/counties'],
     refetchInterval: 30000,
+  });
+
+  const { data: scraperPlatforms } = useQuery<ScraperPlatform[]>({
+    queryKey: ['/api/scraper-platforms'],
   });
 
   const addCountyMutation = useMutation({
@@ -130,11 +141,17 @@ export default function Counties() {
       }
     };
 
+    // Get airtableCountyId - use empty string if blank, null if not provided
+    const airtableCountyIdValue = formData.get('airtableCountyId') as string;
+    const scraperPlatformIdValue = formData.get('scraperPlatformId') as string;
+
     updateCountyMutation.mutate({
       id: editingCounty.id,
       updates: {
         name: formData.get('name') as string,
         state: formData.get('state') as string,
+        airtableCountyId: airtableCountyIdValue || null,
+        scraperPlatformId: scraperPlatformIdValue || null,
         config: updatedConfig
       }
     });
@@ -144,10 +161,19 @@ export default function Counties() {
     const name = formData.get('name') as string;
     const state = formData.get('state') as string;
     const configJson = formData.get('config') as string;
+    const airtableCountyId = formData.get('airtableCountyId') as string;
+    const scraperPlatformId = formData.get('scraperPlatformId') as string;
 
     try {
       const config = JSON.parse(configJson);
-      addCountyMutation.mutate({ name, state, config, isActive: true });
+      addCountyMutation.mutate({
+        name,
+        state,
+        config,
+        isActive: true,
+        airtableCountyId: airtableCountyId || null,
+        scraperPlatformId: scraperPlatformId || null
+      });
     } catch (error) {
       toast({
         title: "Error",
@@ -161,7 +187,7 @@ export default function Counties() {
     maricopa: JSON.stringify({
       scrapeType: 'puppeteer',
       baseUrl: 'https://legacy.recorder.maricopa.gov',
-      searchFormUrl: 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRec.aspx',
+      searchFormUrl: 'https://legacy.recorder.maricopa.gov/recdocdata/',
       searchResultsUrlPattern: 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRecentPgDn.aspx?rec=0&suf=&nm=&bdt={startDate}&edt={endDate}&cde={docType}&max=500&res=True&doc1={docType}&doc2=&doc3=&doc4=&doc5=',
       documentDetailUrlPattern: 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataDetail.aspx?rec={recordingNumber}&suf=&nm=',
       pdfUrlPatterns: [
@@ -174,12 +200,10 @@ export default function Counties() {
       defaultDocumentType: 'HL',
       dateFormat: 'MM/DD/YYYY',
       selectors: {
-        searchFormIframe: "iframe[src*='GetRecDataRecInt']",
-        startDateField: "#txtRecBegDate, #txbRecBegDate, input[id*='RecBegDate']",
-        endDateField: "#txtRecEndDate, #txbRecEndDate, input[id*='RecEndDate']",
-        documentTypeDropdown: "#ddlDocType, #ddlDocType1, select[id*='DocType']",
-        searchButton: "#btnRecDataSubmit, input[type='submit'], button[type='submit']",
-        resultsIframe: "iframe[src*='GetRecDataRecentPgDn']",
+        startDateField: "#ctl00_ContentPlaceHolder1_datepicker_dateInput",
+        endDateField: "#ctl00_ContentPlaceHolder1_datepickerEnd_dateInput",
+        documentTypeDropdown: "#ctl00_ContentPlaceHolder1_ddlDocCodes",
+        searchButton: "#ctl00_ContentPlaceHolder1_btnSearchPanel1",
         resultsTable: 'table',
         recordingNumberLinks: 'a',
         noResultsIndicator: 'No results exist for this search',
@@ -322,7 +346,35 @@ export default function Counties() {
                     <Input id="state" name="state" placeholder="e.g., Nevada" required />
                   </div>
                 </div>
-                
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="scraperPlatformId">Scraper Platform</Label>
+                    <Select name="scraperPlatformId">
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select platform..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {scraperPlatforms?.map((platform) => (
+                          <SelectItem key={platform.id} value={platform.id}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500 mt-1">Which scraper implementation to use</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="airtableCountyId">Airtable County ID</Label>
+                    <Input
+                      id="airtableCountyId"
+                      name="airtableCountyId"
+                      placeholder="e.g., recXXXXXXXXXXXXXX"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Optional: Airtable record ID for linking liens to this county</p>
+                  </div>
+                </div>
+
                 <div>
                   <Label htmlFor="config">Configuration (JSON)</Label>
                   <Tabs defaultValue="custom" className="mt-2">
@@ -458,6 +510,18 @@ export default function Counties() {
                           {(config as any).dateFormat || "MM/DD/YYYY"}
                         </span>
                       </div>
+                      <div>
+                        <strong>Scraper Platform:</strong><br />
+                        <Badge variant={county.scraperPlatformId ? "default" : "outline"}>
+                          {scraperPlatforms?.find(p => p.id === county.scraperPlatformId)?.name || "Not assigned"}
+                        </Badge>
+                      </div>
+                      <div>
+                        <strong>Airtable County ID:</strong><br />
+                        <code className="text-xs bg-slate-100 px-2 py-1 rounded">
+                          {county.airtableCountyId || "Not configured"}
+                        </code>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -518,6 +582,34 @@ export default function Counties() {
                       defaultValue={editingCounty.state}
                       required
                     />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-scraperPlatformId">Scraper Platform</Label>
+                    <Select name="scraperPlatformId" defaultValue={editingCounty.scraperPlatformId || ""}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select platform..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {scraperPlatforms?.map((platform) => (
+                          <SelectItem key={platform.id} value={platform.id}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500 mt-1">Which scraper implementation to use</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-airtableCountyId">Airtable County ID</Label>
+                    <Input
+                      id="edit-airtableCountyId"
+                      name="airtableCountyId"
+                      defaultValue={editingCounty.airtableCountyId || ""}
+                      placeholder="e.g., recXXXXXXXXXXXXXX"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Airtable record ID for linking liens to this county</p>
                   </div>
                 </div>
               </div>
