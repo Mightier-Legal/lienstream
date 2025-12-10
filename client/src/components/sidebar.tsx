@@ -8,7 +8,6 @@ interface MenuItem {
   path: string;
   icon: string;
   label: string;
-  children?: MenuItem[];
 }
 
 export function Sidebar() {
@@ -22,18 +21,10 @@ export function Sidebar() {
     return localStorage.getItem("sidebar-toggle-clicked") === "true";
   });
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(() => {
-    const saved = localStorage.getItem("sidebar-expanded-menus");
-    return saved ? JSON.parse(saved) : ["Operations"]; // Operations expanded by default
-  });
 
   useEffect(() => {
     localStorage.setItem("sidebar-collapsed", collapsed.toString());
   }, [collapsed]);
-
-  useEffect(() => {
-    localStorage.setItem("sidebar-expanded-menus", JSON.stringify(expandedMenus));
-  }, [expandedMenus]);
 
   const handleToggle = () => {
     setCollapsed(!collapsed);
@@ -43,43 +34,22 @@ export function Sidebar() {
     }
   };
 
-  const toggleMenu = (label: string) => {
-    setExpandedMenus(prev =>
-      prev.includes(label)
-        ? prev.filter(l => l !== label)
-        : [...prev, label]
-    );
-  };
-
+  // Flat menu structure - simple and accessible
   const menuItems: MenuItem[] = [
-    { path: "/", icon: "fas fa-tachometer-alt", label: "Dashboard" },
-    {
-      path: "/operations",
-      icon: "fas fa-cogs",
-      label: "Operations",
-      children: [
-        { path: "/operations/logs", icon: "fas fa-clipboard-list", label: "System Logs" },
-      ]
-    },
-    { path: "/liens", icon: "fas fa-file-invoice-dollar", label: "Liens" },
-    { path: "/runs", icon: "fas fa-history", label: "Run History" },
-    { path: "/counties", icon: "fas fa-map-marked-alt", label: "Counties" },
+    { path: "/", icon: "fa-solid fa-gauge-high", label: "Dashboard" },
+    { path: "/operations", icon: "fa-solid fa-gears", label: "Operations" },
+    { path: "/operations/logs", icon: "fa-solid fa-scroll", label: "System Logs" },
+    { path: "/liens", icon: "fa-solid fa-file-invoice-dollar", label: "Liens" },
+    { path: "/runs", icon: "fa-solid fa-clock-rotate-left", label: "Run History" },
+    { path: "/counties", icon: "fa-solid fa-map-location-dot", label: "Counties" },
   ];
-
-  const isMenuActive = (item: MenuItem): boolean => {
-    if (location === item.path) return true;
-    if (item.children) {
-      return item.children.some(child => location === child.path);
-    }
-    return false;
-  };
 
   return (
     <aside className={cn(
       "bg-white shadow-sm border-r border-slate-200 flex flex-col transition-all duration-300 relative h-screen sticky top-0 flex-shrink-0",
       collapsed ? "w-20" : "w-64"
     )}>
-      {/* Toggle Button - Subtle Circular with Arrow */}
+      {/* Toggle Button */}
       <Tooltip delayDuration={0}>
         <TooltipTrigger asChild>
           <button
@@ -94,7 +64,7 @@ export function Sidebar() {
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             <i className={cn(
-              "fas text-sm text-slate-700 group-hover:text-blue-600 transition-all transform group-hover:scale-110",
+              "fa-solid text-sm text-slate-700 group-hover:text-blue-600 transition-all transform group-hover:scale-110",
               collapsed ? "fa-angle-right" : "fa-angle-left"
             )}></i>
           </button>
@@ -126,102 +96,66 @@ export function Sidebar() {
           )}
         </div>
       </div>
-      
+
       {/* Navigation */}
       <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-1">
-          {menuItems.map((item) => (
-            <li key={item.path}>
-              {collapsed ? (
-                // Collapsed state - show icon with tooltip
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger asChild>
-                    <Link
-                      href={item.path}
-                      className={cn(
-                        "flex items-center justify-center px-3 py-2.5 rounded-lg font-medium transition-colors",
-                        isMenuActive(item)
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-slate-600 hover:bg-slate-50"
-                      )}
-                      data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-                    >
-                      <i className={`${item.icon} text-lg`}></i>
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{item.label}</p>
-                  </TooltipContent>
-                </Tooltip>
-              ) : item.children ? (
-                // Expanded state with children - accordion
-                <div>
-                  <button
-                    onClick={() => toggleMenu(item.label)}
+          {menuItems.map((item) => {
+            const isActive = location === item.path;
+
+            return (
+              <li key={item.path}>
+                {collapsed ? (
+                  // Collapsed state - icon only with tooltip
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={item.path}
+                        className={cn(
+                          "flex items-center justify-center h-10 w-full rounded-lg transition-colors",
+                          isActive
+                            ? "bg-blue-50"
+                            : "hover:bg-slate-50"
+                        )}
+                        data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                      >
+                        <i className={cn(
+                          item.icon,
+                          "text-base",
+                          isActive ? "text-blue-600" : "text-slate-500"
+                        )}></i>
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>{item.label}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  // Expanded state - icon + label
+                  <Link
+                    href={item.path}
                     className={cn(
-                      "w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium transition-colors",
-                      isMenuActive(item)
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-colors",
+                      isActive
                         ? "bg-blue-50 text-blue-700"
-                        : "text-slate-600 hover:bg-slate-50"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"
                     )}
                     data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                   >
-                    <div className="flex items-center space-x-3">
-                      <i className={`${item.icon} w-5 text-center`}></i>
-                      <span>{item.label}</span>
-                    </div>
                     <i className={cn(
-                      "fas fa-chevron-down text-xs transition-transform duration-200",
-                      expandedMenus.includes(item.label) ? "rotate-180" : ""
+                      item.icon,
+                      "w-5 text-center",
+                      isActive ? "text-blue-600" : "text-slate-400"
                     )}></i>
-                  </button>
-                  {/* Children items */}
-                  <div className={cn(
-                    "overflow-hidden transition-all duration-200",
-                    expandedMenus.includes(item.label) ? "max-h-40 mt-1" : "max-h-0"
-                  )}>
-                    <ul className="ml-4 pl-3 border-l-2 border-slate-200 space-y-1">
-                      {item.children.map((child) => (
-                        <li key={child.path}>
-                          <Link
-                            href={child.path}
-                            className={cn(
-                              "flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                              location === child.path
-                                ? "bg-blue-50 text-blue-700"
-                                : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                            )}
-                            data-testid={`nav-${child.label.toLowerCase().replace(/\s+/g, '-')}`}
-                          >
-                            <i className={`${child.icon} w-4 text-center text-sm`}></i>
-                            <span>{child.label}</span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              ) : (
-                // Expanded state without children - simple link
-                <Link
-                  href={item.path}
-                  className={cn(
-                    "flex items-center space-x-3 px-3 py-2.5 rounded-lg font-medium transition-colors",
-                    location === item.path
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-slate-600 hover:bg-slate-50"
-                  )}
-                  data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-                >
-                  <i className={`${item.icon} w-5 text-center`}></i>
-                  <span>{item.label}</span>
-                </Link>
-              )}
-            </li>
-          ))}
+                    <span>{item.label}</span>
+                  </Link>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </nav>
-      
+
       {/* User Profile with Expandable Menu */}
       <div className="border-t border-slate-200">
         {/* Expandable Menu (shows above user info when open) */}
@@ -236,7 +170,7 @@ export function Sidebar() {
                   setLocation('/settings');
                 }}
               >
-                <i className="fas fa-cog w-4"></i>
+                <i className="fa-solid fa-gear w-4 text-slate-400"></i>
                 <span>Settings</span>
               </button>
               {/* Logout */}
@@ -248,7 +182,7 @@ export function Sidebar() {
                   logout();
                 }}
               >
-                <i className="fas fa-sign-out-alt w-4"></i>
+                <i className="fa-solid fa-right-from-bracket w-4"></i>
                 <span>Sign Out</span>
               </button>
             </div>
@@ -282,7 +216,7 @@ export function Sidebar() {
                       setLocation('/settings');
                     }}
                   >
-                    <i className="fas fa-cog w-4"></i>
+                    <i className="fa-solid fa-gear w-4 text-slate-400"></i>
                     <span>Settings</span>
                   </button>
                   <button
@@ -293,7 +227,7 @@ export function Sidebar() {
                       logout();
                     }}
                   >
-                    <i className="fas fa-sign-out-alt w-4"></i>
+                    <i className="fa-solid fa-right-from-bracket w-4"></i>
                     <span>Sign Out</span>
                   </button>
                 </div>
@@ -316,7 +250,7 @@ export function Sidebar() {
                 </p>
               </div>
               <i className={cn(
-                "fas fa-chevron-up text-slate-400 transition-transform",
+                "fa-solid fa-chevron-up text-slate-400 transition-transform",
                 userMenuOpen ? "rotate-0" : "rotate-180"
               )}></i>
             </button>

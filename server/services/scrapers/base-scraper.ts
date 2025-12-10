@@ -7,22 +7,32 @@ import { County, ScraperPlatform } from '../../../shared/schema';
 
 /**
  * Get the public base URL for serving PDFs
- * Priority: PUBLIC_URL app setting > REPLIT_DEV_DOMAIN env > localhost fallback
+ * Uses Replit environment variables which differ between dev and production:
+ * - Development: REPLIT_DEV_DOMAIN (long UUID-style domain)
+ * - Production: REPLIT_DOMAINS (comma-separated, use first one)
  */
 export async function getPublicBaseUrl(): Promise<string> {
-  // First check app settings for PUBLIC_URL
+  // First check app settings for PUBLIC_URL (manual override)
   const publicUrlSetting = await storage.getAppSetting('PUBLIC_URL');
   if (publicUrlSetting?.value) {
-    // Remove trailing slash if present
     return publicUrlSetting.value.replace(/\/$/, '');
   }
 
-  // Fall back to Replit dev domain (for dev mode)
+  // Check if deployed (production) - REPLIT_DEPLOYMENT is "1" in production
+  if (process.env.REPLIT_DEPLOYMENT === '1') {
+    // In production, use REPLIT_DOMAINS (first domain in the comma-separated list)
+    const domains = process.env.REPLIT_DOMAINS?.split(',') || [];
+    if (domains.length > 0) {
+      return `https://${domains[0]}`;
+    }
+  }
+
+  // In development, use REPLIT_DEV_DOMAIN
   if (process.env.REPLIT_DEV_DOMAIN) {
     return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   }
 
-  // Final fallback for local development
+  // Fallback for local development only
   return 'http://localhost:5000';
 }
 
