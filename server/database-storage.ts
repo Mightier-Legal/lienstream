@@ -32,12 +32,16 @@ import { eq, desc, and, gte, sql, or } from "drizzle-orm";
 import { IStorage } from "./storage";
 import { randomUUID } from "crypto";
 
-// Database operation retry helper
+// Detect if running in production (deployed) environment
+const isProduction = process.env.NODE_ENV === 'production' || 
+                     process.env.REPL_SLUG !== undefined;
+
+// Database operation retry helper with improved error detection
 async function retryDatabaseOperation<T>(
   operation: () => Promise<T>, 
   operationName: string, 
-  maxRetries: number = 3,
-  baseDelay: number = 1000
+  maxRetries: number = isProduction ? 5 : 3, // More retries in production for cold starts
+  baseDelay: number = isProduction ? 2000 : 1000 // Longer base delay in production
 ): Promise<T> {
   let lastError: Error;
   
@@ -46,24 +50,39 @@ async function retryDatabaseOperation<T>(
       return await operation();
     } catch (error: any) {
       lastError = error;
-      console.error(`[Database] ${operationName} attempt ${attempt} failed:`, error.message);
+      const errorMessage = error.message || String(error);
+      console.error(`[Database] ${operationName} attempt ${attempt}/${maxRetries} failed:`, errorMessage);
       
       // Check if this is a transient error that might be recoverable
+      // Includes Neon serverless cold start timeouts
       const isTransientError = 
         error.code === '57P01' || // admin_shutdown
         error.code === '57P02' || // crash_shutdown  
         error.code?.startsWith('08') || // Connection exception class
         error.code === 'ECONNRESET' ||
         error.code === 'ETIMEDOUT' ||
-        error.code === 'ENOTFOUND';
+        error.code === 'ENOTFOUND' ||
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'EPIPE' ||
+        // Neon serverless specific errors
+        errorMessage.includes('Connection terminated') ||
+        errorMessage.includes('connection timeout') ||
+        errorMessage.includes('Connection timeout') ||
+        errorMessage.includes('timeout expired') ||
+        errorMessage.includes('Client has encountered a connection error') ||
+        errorMessage.includes('socket hang up') ||
+        errorMessage.includes('ECONNRESET') ||
+        errorMessage.includes('fetch failed');
       
       if (!isTransientError || attempt === maxRetries) {
+        console.error(`[Database] ${operationName} failed permanently after ${attempt} attempts`);
         throw error;
       }
       
-      // Wait with exponential backoff before retry
-      const delay = baseDelay * Math.pow(2, attempt - 1);
-      console.log(`[Database] Retrying ${operationName} in ${delay}ms...`);
+      // Wait with exponential backoff before retry (with jitter to prevent thundering herd)
+      const jitter = Math.random() * 500; // Add 0-500ms random jitter
+      const delay = (baseDelay * Math.pow(2, attempt - 1)) + jitter;
+      console.log(`[Database] Retrying ${operationName} in ${Math.round(delay)}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -72,9 +91,45 @@ async function retryDatabaseOperation<T>(
 }
 
 export class DatabaseStorage implements IStorage {
+  private initializationComplete = false;
+  private initializationPromise: Promise<void> | null = null;
+
   constructor() {
     // Initialize default scraper platforms and counties if not exists
-    this.initializeDefaults();
+    // Use delayed initialization to handle cold starts gracefully
+    this.initializationPromise = this.initializeDefaultsWithRetry();
+  }
+
+  // Wait for initialization to complete (useful for operations that need seeded data)
+  async waitForInitialization(): Promise<void> {
+    if (this.initializationComplete) return;
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
+  }
+
+  private async initializeDefaultsWithRetry(maxAttempts: number = 5): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.initializeDefaults();
+        this.initializationComplete = true;
+        console.log('[Storage] Database initialization completed successfully');
+        return;
+      } catch (error: any) {
+        console.error(`[Storage] Initialization attempt ${attempt}/${maxAttempts} failed:`, error.message);
+        
+        if (attempt === maxAttempts) {
+          console.error('[Storage] Database initialization failed after all attempts - app will continue but some features may not work');
+          // Don't throw - let the app start anyway, individual queries will retry
+          return;
+        }
+        
+        // Wait with exponential backoff before retry
+        const delay = 2000 * Math.pow(2, attempt - 1);
+        console.log(`[Storage] Retrying initialization in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
   }
 
   private async initializeDefaults() {
@@ -84,7 +139,10 @@ export class DatabaseStorage implements IStorage {
 
   private async initializeScraperPlatforms() {
     try {
-      const existingPlatforms = await this.getAllScraperPlatforms();
+      const existingPlatforms = await retryDatabaseOperation(
+        () => this.getAllScraperPlatforms(),
+        'initializeScraperPlatforms.getAllScraperPlatforms'
+      );
 
       if (existingPlatforms.length === 0) {
         // Seed Maricopa Legacy platform
@@ -146,8 +204,9 @@ export class DatabaseStorage implements IStorage {
         });
         console.log('[Storage] Seeded landmark-web scraper platform');
       }
-    } catch (error) {
-      console.error('[Storage] Error initializing scraper platforms:', error);
+    } catch (error: any) {
+      console.error('[Storage] Error initializing scraper platforms:', error.message);
+      throw error; // Re-throw so initializeDefaultsWithRetry can handle it
     }
   }
 
@@ -494,42 +553,49 @@ export class DatabaseStorage implements IStorage {
 
   private async initializeDefaultCounties() {
     try {
-      // Check if Maricopa County already exists
-      const existingCounties = await this.getCountiesByState("Arizona");
+      // Check if Maricopa County already exists with retry
+      const existingCounties = await retryDatabaseOperation(
+        () => this.getCountiesByState("Arizona"),
+        'initializeDefaultCounties.getCountiesByState'
+      );
       
       if (existingCounties.length === 0) {
         // Initialize Maricopa County
-        await this.createCounty({
-          name: "Maricopa County",
-          state: "Arizona",
-          isActive: true,
-          config: {
-            scrapeType: 'puppeteer',
-            baseUrl: 'https://legacy.recorder.maricopa.gov',
-            searchUrl: 'https://legacy.recorder.maricopa.gov/recdocdata/',
-            documentUrlPattern: 'https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/{recordingNumber}.pdf',
-            selectors: {
-              documentTypeField: 'select[name="ctl00$ContentPlaceHolder1$ddlDocCodes"]',
-              documentTypeValue: 'MEDICAL LN-FOR MOSTMEDICAL/HOSP/CHIRO LIENTYPES',
-              startDateField: '#ctl00_ContentPlaceHolder1_RadDateInputBegin',
-              endDateField: '#ctl00_ContentPlaceHolder1_RadDateInputEnd',
-              searchButton: '#ctl00_ContentPlaceHolder1_btnSearch2',
-              resultsTable: 'table[id="ctl00_ContentPlaceHolder1_GridView1"], table[id*="ctl00"]',
-              recordingNumberLinks: 'table[id="ctl00_ContentPlaceHolder1_GridView1"] tr td:first-child a[href*="pdf"]'
-            },
-            parsing: {
-              amountPattern: 'Amount claimed due for care of patient as of date of recording[:\\s]*\\$?([\\d,]+\\.?\\d*)',
-              debtorPattern: 'Debtor[:\\s]*(.*?)(?:\\n|Address|$)',
-              creditorPattern: 'Creditor[:\\s]*(.*?)(?:\\n|Address|$)',
-              addressPattern: 'Address[:\\s]*(.*?)(?:\\n|$)'
+        await retryDatabaseOperation(
+          () => this.createCounty({
+            name: "Maricopa County",
+            state: "Arizona",
+            isActive: true,
+            config: {
+              scrapeType: 'puppeteer',
+              baseUrl: 'https://legacy.recorder.maricopa.gov',
+              searchUrl: 'https://legacy.recorder.maricopa.gov/recdocdata/',
+              documentUrlPattern: 'https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/{recordingNumber}.pdf',
+              selectors: {
+                documentTypeField: 'select[name="ctl00$ContentPlaceHolder1$ddlDocCodes"]',
+                documentTypeValue: 'MEDICAL LN-FOR MOSTMEDICAL/HOSP/CHIRO LIENTYPES',
+                startDateField: '#ctl00_ContentPlaceHolder1_RadDateInputBegin',
+                endDateField: '#ctl00_ContentPlaceHolder1_RadDateInputEnd',
+                searchButton: '#ctl00_ContentPlaceHolder1_btnSearch2',
+                resultsTable: 'table[id="ctl00_ContentPlaceHolder1_GridView1"], table[id*="ctl00"]',
+                recordingNumberLinks: 'table[id="ctl00_ContentPlaceHolder1_GridView1"] tr td:first-child a[href*="pdf"]'
+              },
+              parsing: {
+                amountPattern: 'Amount claimed due for care of patient as of date of recording[:\\s]*\\$?([\\d,]+\\.?\\d*)',
+                debtorPattern: 'Debtor[:\\s]*(.*?)(?:\\n|Address|$)',
+                creditorPattern: 'Creditor[:\\s]*(.*?)(?:\\n|Address|$)',
+                addressPattern: 'Address[:\\s]*(.*?)(?:\\n|$)'
+              }
             }
-          }
-        });
+          }),
+          'initializeDefaultCounties.createCounty'
+        );
         
         console.log('[Storage] Initialized Maricopa County');
       }
-    } catch (error) {
-      console.error('[Storage] Error initializing counties:', error);
+    } catch (error: any) {
+      console.error('[Storage] Error initializing counties:', error.message);
+      throw error; // Re-throw so initializeDefaultsWithRetry can handle it
     }
   }
   
