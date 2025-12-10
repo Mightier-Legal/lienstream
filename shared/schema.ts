@@ -41,6 +41,7 @@ export const liens = pgTable("liens", {
   documentUrl: text("document_url"),
   pdfUrl: text("pdf_url"), // Local PDF URL for stored PDFs
   status: text("status").notNull().default("pending"), // pending, processing, synced, mailer_sent, completed
+  failureReason: text("failure_reason"), // Reason for sync failure if any
   airtableRecordId: text("airtable_record_id"),
   enrichmentData: jsonb("enrichment_data"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -69,13 +70,27 @@ export const systemLogs = pgTable("system_logs", {
   timestamp: timestamp("timestamp").notNull().defaultNow(),
 });
 
+// Scraper platforms table - defines different scraper implementations
+export const scraperPlatforms = pgTable("scraper_platforms", {
+  id: varchar("id", { length: 50 }).primaryKey(), // 'maricopa-legacy', 'landmark-web', etc.
+  name: text("name").notNull(), // Human-readable name
+  description: text("description"),
+  defaultConfig: jsonb("default_config"), // Base config template for this platform
+  hasCaptcha: boolean("has_captcha").notNull().default(false),
+  requiresIframe: boolean("requires_iframe").notNull().default(false),
+  notes: text("notes"), // Implementation notes for developers
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Schedule settings table - must be defined before counties since counties references it
 export const scheduleSettings = pgTable("schedule_settings", {
   id: varchar("id", { length: 255 }).primaryKey().default('global'),
   name: text("name").notNull().default('Default Schedule'), // Human-readable name
   hour: integer("hour").notNull().default(5),
   minute: integer("minute").notNull().default(0),
-  timezone: text("timezone").notNull().default('America/New_York'),
+  timezone: timezoneEnum("timezone").notNull().default('America/New_York'),
   skipWeekends: boolean("skip_weekends").notNull().default(false),
   isEnabled: boolean("is_enabled").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -87,8 +102,10 @@ export const counties = pgTable("counties", {
   name: text("name").notNull(),
   state: text("state").notNull(),
   isActive: boolean("is_active").notNull().default(true),
-  config: jsonb("config").notNull(), // Stores scraping configuration
-  scheduleSettingsId: varchar("schedule_settings_id").references(() => scheduleSettings.id), // Which schedule to use
+  config: jsonb("config").notNull(), // Stores county-specific scraping configuration (merged with platform defaults)
+  airtableCountyId: text("airtable_county_id"), // Airtable record ID for this county (used in linked record field)
+  scraperPlatformId: varchar("scraper_platform_id", { length: 50 }).references(() => scraperPlatforms.id), // Which scraper platform to use
+  scheduleSettingsId: varchar("schedule_settings_id", { length: 255 }).references(() => scheduleSettings.id), // Which schedule to use
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -127,6 +144,11 @@ export const insertSystemLogSchema = createInsertSchema(systemLogs).omit({
   timestamp: true,
 });
 
+export const insertScraperPlatformSchema = createInsertSchema(scraperPlatforms).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertCountySchema = createInsertSchema(counties).omit({
   id: true,
   createdAt: true,
@@ -163,6 +185,29 @@ export type CountyRun = typeof countyRuns.$inferSelect;
 
 export type InsertScheduleSettings = z.infer<typeof insertScheduleSettingsSchema>;
 export type ScheduleSettings = typeof scheduleSettings.$inferSelect;
+
+export type InsertScraperPlatform = z.infer<typeof insertScraperPlatformSchema>;
+export type ScraperPlatform = typeof scraperPlatforms.$inferSelect;
+
+// App Settings table for storing environment variables and secrets
+export const appSettings = pgTable("app_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+  isSecret: boolean("is_secret").notNull().default(false),
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertAppSettingsSchema = createInsertSchema(appSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertAppSettings = z.infer<typeof insertAppSettingsSchema>;
+export type AppSettings = typeof appSettings.$inferSelect;
 
 // County Configuration Interface
 export interface CountyConfig {

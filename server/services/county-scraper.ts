@@ -572,17 +572,35 @@ export class PuppeteerCountyScraper extends CountyScraper {
     try {
       await Logger.info(`Starting lien scraping for ${this.county.name}`, 'county-scraper');
 
-      // Use provided date range or default to today
-      const startDate = fromDate ? new Date(fromDate) : new Date();
-      const endDate = toDate ? new Date(toDate) : startDate;
-      
-      const startMonth = startDate.getMonth() + 1;
-      const startDay = startDate.getDate();
-      const startYear = startDate.getFullYear();
-      
-      const endMonth = endDate.getMonth() + 1;
-      const endDay = endDate.getDate();
-      const endYear = endDate.getFullYear();
+      // Parse date strings directly to avoid timezone conversion issues
+      // fromDate/toDate are in "YYYY-MM-DD" format from the scheduler
+      // Using new Date() on these strings causes UTC interpretation, which can
+      // return the wrong day when the server is in a timezone behind UTC
+      let startMonth: number, startDay: number, startYear: number;
+      let endMonth: number, endDay: number, endYear: number;
+
+      if (fromDate) {
+        const parts = fromDate.split('-');
+        startYear = parseInt(parts[0], 10);
+        startMonth = parseInt(parts[1], 10);
+        startDay = parseInt(parts[2], 10);
+      } else {
+        const now = new Date();
+        startYear = now.getFullYear();
+        startMonth = now.getMonth() + 1;
+        startDay = now.getDate();
+      }
+
+      if (toDate) {
+        const parts = toDate.split('-');
+        endYear = parseInt(parts[0], 10);
+        endMonth = parseInt(parts[1], 10);
+        endDay = parseInt(parts[2], 10);
+      } else {
+        endYear = startYear;
+        endMonth = startMonth;
+        endDay = startDay;
+      }
       
       // Navigate to search form page first (required for iframe results)
       const searchFormUrl = 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRec.aspx';

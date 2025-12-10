@@ -6,6 +6,8 @@ import {
   counties,
   countyRuns,
   scheduleSettings,
+  appSettings,
+  scraperPlatforms,
   type User,
   type InsertUser,
   type Lien,
@@ -19,7 +21,11 @@ import {
   type CountyRun,
   type InsertCountyRun,
   type ScheduleSettings,
-  type InsertScheduleSettings
+  type InsertScheduleSettings,
+  type AppSettings,
+  type InsertAppSettings,
+  type ScraperPlatform,
+  type InsertScraperPlatform
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, gte, sql, or } from "drizzle-orm";
@@ -67,8 +73,82 @@ async function retryDatabaseOperation<T>(
 
 export class DatabaseStorage implements IStorage {
   constructor() {
-    // Initialize default counties if not exists
-    this.initializeDefaultCounties();
+    // Initialize default scraper platforms and counties if not exists
+    this.initializeDefaults();
+  }
+
+  private async initializeDefaults() {
+    await this.initializeScraperPlatforms();
+    await this.initializeDefaultCounties();
+  }
+
+  private async initializeScraperPlatforms() {
+    try {
+      const existingPlatforms = await this.getAllScraperPlatforms();
+
+      if (existingPlatforms.length === 0) {
+        // Seed Maricopa Legacy platform
+        await this.createScraperPlatform({
+          id: 'maricopa-legacy',
+          name: 'Maricopa Legacy System',
+          description: 'Maricopa County\'s legacy recorder system with iframe-based search',
+          hasCaptcha: false,
+          requiresIframe: true,
+          notes: 'Uses iframe-based search form. PDF URLs follow pattern: UnofficialPdfDocs.aspx?rec={recordingNumber}',
+          isActive: true,
+          defaultConfig: {
+            scrapeType: 'puppeteer',
+            delays: {
+              pageLoadWait: 3000,
+              betweenRequests: 300,
+              afterFormSubmit: 3000,
+              pdfLoadWait: 2000
+            },
+            selectors: {
+              searchFormIframe: 'GetRecDataRecInt',
+              startDateField: '#txtRecBegDate, #txbRecBegDate, input[id*="RecBegDate"]',
+              endDateField: '#txtRecEndDate, #txbRecEndDate, input[id*="RecEndDate"]',
+              documentTypeDropdown: '#ddlDocType, #ddlDocType1, select[id*="DocType"]',
+              searchButton: '#btnRecDataSubmit, input[type="submit"]'
+            },
+            pdfUrlPattern: 'https://legacy.recorder.maricopa.gov/recdocdata/UnofficialPdfDocs.aspx?rec={recordingNumber}&pg=1&cls=RecorderDocuments&suf='
+          }
+        });
+        console.log('[Storage] Seeded maricopa-legacy scraper platform');
+
+        // Seed LandmarkWeb platform
+        await this.createScraperPlatform({
+          id: 'landmark-web',
+          name: 'LandmarkWeb',
+          description: 'Tyler Technologies LandmarkWeb platform used by many counties',
+          hasCaptcha: false, // Some counties may have CAPTCHA
+          requiresIframe: false,
+          notes: 'Commercial platform. Direct page navigation, no iframes. Document types vary by county.',
+          isActive: true,
+          defaultConfig: {
+            scrapeType: 'puppeteer',
+            delays: {
+              pageLoadWait: 3000,
+              betweenRequests: 500,
+              afterFormSubmit: 3000,
+              pdfLoadWait: 2000
+            },
+            selectors: {
+              documentTypeInput: '#documentType-DocumentType',
+              beginDateInput: '#beginDate-DocumentType',
+              endDateInput: '#endDate-DocumentType',
+              datePresetDropdown: '#lastNumOfDays-DocumentType',
+              searchButton: '#submit-DocumentType',
+              backToResultsButton: '#returnToSearchButton'
+            },
+            dateFormat: 'MM/DD/YYYY'
+          }
+        });
+        console.log('[Storage] Seeded landmark-web scraper platform');
+      }
+    } catch (error) {
+      console.error('[Storage] Error initializing scraper platforms:', error);
+    }
   }
 
   // Schedule configuration (now persisted in database)
@@ -290,6 +370,10 @@ export class DatabaseStorage implements IStorage {
 
   async getActiveCounties(): Promise<County[]> {
     return await db.select().from(counties).where(eq(counties.isActive, true));
+  }
+
+  async getAllCounties(): Promise<County[]> {
+    return await db.select().from(counties);
   }
 
   async createCounty(county: InsertCounty): Promise<County> {
@@ -532,5 +616,91 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     return result.length;
+  }
+
+  // App Settings methods
+  async getAllAppSettings(): Promise<AppSettings[]> {
+    return await retryDatabaseOperation(async () => {
+      return await db.select().from(appSettings).orderBy(appSettings.key);
+    }, 'getAllAppSettings');
+  }
+
+  async getAppSetting(key: string): Promise<AppSettings | undefined> {
+    return await retryDatabaseOperation(async () => {
+      const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+      return setting;
+    }, `getAppSetting(${key})`);
+  }
+
+  async upsertAppSetting(setting: InsertAppSettings): Promise<AppSettings> {
+    return await retryDatabaseOperation(async () => {
+      const existing = await db.select().from(appSettings).where(eq(appSettings.key, setting.key));
+
+      if (existing.length > 0) {
+        const [updated] = await db.update(appSettings)
+          .set({
+            value: setting.value,
+            isSecret: setting.isSecret,
+            description: setting.description,
+            updatedAt: new Date()
+          })
+          .where(eq(appSettings.key, setting.key))
+          .returning();
+        return updated;
+      } else {
+        const [inserted] = await db.insert(appSettings)
+          .values({
+            ...setting,
+            id: randomUUID()
+          })
+          .returning();
+        return inserted;
+      }
+    }, `upsertAppSetting(${setting.key})`);
+  }
+
+  async deleteAppSetting(key: string): Promise<void> {
+    await retryDatabaseOperation(async () => {
+      await db.delete(appSettings).where(eq(appSettings.key, key));
+    }, `deleteAppSetting(${key})`);
+  }
+
+  // Scraper Platform methods
+  async getAllScraperPlatforms(): Promise<ScraperPlatform[]> {
+    return await retryDatabaseOperation(async () => {
+      return await db.select().from(scraperPlatforms).orderBy(scraperPlatforms.name);
+    }, 'getAllScraperPlatforms');
+  }
+
+  async getActiveScraperPlatforms(): Promise<ScraperPlatform[]> {
+    return await retryDatabaseOperation(async () => {
+      return await db.select().from(scraperPlatforms).where(eq(scraperPlatforms.isActive, true)).orderBy(scraperPlatforms.name);
+    }, 'getActiveScraperPlatforms');
+  }
+
+  async getScraperPlatform(id: string): Promise<ScraperPlatform | undefined> {
+    return await retryDatabaseOperation(async () => {
+      const [platform] = await db.select().from(scraperPlatforms).where(eq(scraperPlatforms.id, id));
+      return platform;
+    }, `getScraperPlatform(${id})`);
+  }
+
+  async createScraperPlatform(platform: InsertScraperPlatform): Promise<ScraperPlatform> {
+    return await retryDatabaseOperation(async () => {
+      const [newPlatform] = await db.insert(scraperPlatforms).values({
+        ...platform,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }).returning();
+      return newPlatform;
+    }, `createScraperPlatform(${platform.id})`);
+  }
+
+  async updateScraperPlatform(id: string, updates: Partial<ScraperPlatform>): Promise<void> {
+    await retryDatabaseOperation(async () => {
+      await db.update(scraperPlatforms)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(scraperPlatforms.id, id));
+    }, `updateScraperPlatform(${id})`);
   }
 }

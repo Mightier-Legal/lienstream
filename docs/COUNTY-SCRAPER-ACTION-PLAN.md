@@ -1,11 +1,159 @@
 # County Scraper Action Plan
 
+## Current Status (Updated 2025-12-10)
+
+### ✅ COMPLETED (12/10)
+- `scraper_platforms` table created with `defaultConfig` JSON for platform defaults
+- `counties.scraperPlatformId` foreign key linking counties to platforms
+- Two platforms seeded: `maricopa-legacy` and `landmark-web`
+- UI to assign platforms to counties
+- API endpoints for platforms CRUD
+- Date timezone bug fixed (lines 575-603 in county-scraper.ts)
+- Test county created (duplicate of Maricopa with extracted config from county-scraper.ts)
+- **Task 1: Scraper folder structure created** - `server/services/scrapers/` with all files
+- **Task 2: `base-scraper.ts` created** - Abstract base class with browser init, PDF download, config merging, DB save
+- **Task 3: `maricopa-legacy.ts` created** - Maricopa platform scraper (updated: direct page form, no iframe needed)
+- **Task 4: `landmark-web.ts` created** - Skeleton implementation for LandmarkWeb platform
+- **Task 5: `scraper-factory.ts` created** - Factory with Strategy pattern for platform-based instantiation
+- **Task 6: Scheduler updated** - Uses `createScraper(county)` factory function
+- **Task 7: Dynamic scraper tested** - Successfully found 100+ liens using test county config from database
+- **Task 8: Cleanup completed** - Deleted `MemStorage` class from `storage.ts` (~590 lines of dead code)
+- **Fixed Maricopa form handling** - Site no longer uses iframes; rewrote `fillAndSubmitSearchForm` for direct page form
+- **Fixed scheduler date logic** - Now always uses yesterday's date when no dates provided (both scheduled and manual runs)
+
+### 🔄 REMAINING TASKS
+
+#### Task 9: PDF URL Production Fix
+**Issue:** PDF URLs are currently generated using `localhost:5000` in development. This won't work in production.
+
+**Current code in `base-scraper.ts`:**
+```typescript
+const baseUrl = process.env.REPLIT_DEV_DOMAIN
+  ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+  : 'http://localhost:5000';
+```
+
+**Solution:** Ensure `REPLIT_DEV_DOMAIN` (or a production URL env var) is set in production deployment.
+
+#### Task 10: Remove Old county-scraper.ts
+- The legacy `server/services/county-scraper.ts` can be deleted once we're confident the new scrapers work reliably
+- Keep for reference during transition period
+
+#### Task 11: Add More Counties
+- Research additional county recorder websites
+- Create config JSON for each new county
+- Test with the dynamic scraper system
+
+### Implementation Notes (12/10)
+
+**Maricopa County Site Changes:**
+The Maricopa County Recorder site was updated and no longer uses iframes for the search form. Key changes made:
+
+1. **Search form URL:** Changed from `GetRecDataRec.aspx` to `/recdocdata/`
+2. **Form selectors (new ASP.NET control IDs):**
+   - Start date: `#ctl00_ContentPlaceHolder1_datepicker_dateInput`
+   - End date: `#ctl00_ContentPlaceHolder1_datepickerEnd_dateInput`
+   - Doc type dropdown: `#ctl00_ContentPlaceHolder1_ddlDocCodes`
+   - Search button: `#ctl00_ContentPlaceHolder1_btnSearchPanel1`
+3. **Document type value:** `HL` (not the display text)
+4. **Date format:** `MM/DD/YYYY` (e.g., `12/09/2025`)
+
+**Working County Config JSON:**
+```json
+{
+  "scrapeType": "puppeteer",
+  "baseUrl": "https://legacy.recorder.maricopa.gov",
+  "searchFormUrl": "https://legacy.recorder.maricopa.gov/recdocdata/",
+  "documentDetailUrlPattern": "https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataDetail.aspx?rec={recordingNumber}&suf=&nm=",
+  "pdfUrlPatterns": [
+    "https://legacy.recorder.maricopa.gov/recdocdata/UnofficialPdfDocs.aspx?rec={recordingNumber}&pg=1&cls=RecorderDocuments&suf=",
+    "https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/{recordingNumber}.pdf"
+  ],
+  "defaultDocumentType": "HL",
+  "dateFormat": "MM/DD/YYYY",
+  "selectors": {
+    "startDateField": "#ctl00_ContentPlaceHolder1_datepicker_dateInput",
+    "endDateField": "#ctl00_ContentPlaceHolder1_datepickerEnd_dateInput",
+    "documentTypeDropdown": "#ctl00_ContentPlaceHolder1_ddlDocCodes",
+    "searchButton": "#ctl00_ContentPlaceHolder1_btnSearchPanel1",
+    "resultsTable": "table",
+    "recordingNumberLinks": "a",
+    "noResultsIndicator": "No results exist for this search"
+  },
+  "delays": {
+    "pageLoadWait": 3000,
+    "betweenRequests": 300,
+    "afterFormSubmit": 3000,
+    "pdfLoadWait": 2000
+  }
+}
+```
+
+### ✅ PREVIOUS TASKS (Reference)
+
+### Key Files
+- **Schema:** `shared/schema.ts` (scraperPlatforms table, CountyConfig interface)
+- **DB Storage:** `server/database-storage.ts` (platform seeding, config fetching)
+- **Legacy scraper:** `server/services/county-scraper.ts` (to be removed - Task 10)
+- **New scrapers:**
+  - `server/services/scrapers/base-scraper.ts` - Abstract base class
+  - `server/services/scrapers/maricopa-legacy.ts` - Maricopa platform implementation
+  - `server/services/scrapers/landmark-web.ts` - LandmarkWeb platform skeleton
+  - `server/services/scrapers/scraper-factory.ts` - Factory function
+  - `server/services/scrapers/index.ts` - Barrel exports
+- **Scheduler:** `server/services/scheduler.ts` (uses factory)
+
+### Architecture Overview
+```
+┌─────────────────┐     ┌──────────────────┐
+│   Scheduler     │────▶│  ScraperFactory  │
+└─────────────────┘     └────────┬─────────┘
+                                 │
+                    ┌────────────┼────────────┐
+                    ▼            ▼            ▼
+            ┌───────────┐ ┌───────────┐ ┌───────────┐
+            │ Maricopa  │ │ Landmark  │ │  Future   │
+            │  Legacy   │ │   Web     │ │ Platforms │
+            └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+                  │             │             │
+                  └─────────────┼─────────────┘
+                                ▼
+                        ┌───────────────┐
+                        │  BaseScraper  │
+                        │ (common code) │
+                        └───────────────┘
+```
+
+### Config Merging Strategy
+```typescript
+// Platform default (scraper_platforms.default_config)
+{
+  delays: { pageLoadWait: 3000, betweenRequests: 500 },
+  selectors: { searchButton: "#submit" }
+}
+
+// County override (counties.config)
+{
+  baseUrl: "https://specific-county.gov",
+  delays: { pageLoadWait: 5000 }  // Override just this
+}
+
+// Merged result (used by scraper)
+{
+  baseUrl: "https://specific-county.gov",
+  delays: { pageLoadWait: 5000, betweenRequests: 500 },  // Merged
+  selectors: { searchButton: "#submit" }  // From platform
+}
+```
+
+---
+
 ## Executive Summary
 
 The county scraper currently has three critical issues:
 1. **Hard-coded values** - All URLs, selectors, and document types are hard-coded for Maricopa County
 2. **Database config ignored** - The `counties.config` JSON is passed but never used
-3. **Date timezone bug** - Date strings are converted incorrectly, causing off-by-one day errors
+3. ~~**Date timezone bug** - Date strings are converted incorrectly, causing off-by-one day errors~~ ✅ FIXED
 
 This plan provides step-by-step actions to fix these issues and make the scraper dynamic.
 

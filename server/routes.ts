@@ -830,10 +830,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Scraper Platform routes
+  app.get("/api/scraper-platforms", requireAuth, async (req, res) => {
+    try {
+      const platforms = await storage.getAllScraperPlatforms();
+      res.json(platforms);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch scraper platforms" });
+    }
+  });
+
+  app.get("/api/scraper-platforms/active", requireAuth, async (req, res) => {
+    try {
+      const platforms = await storage.getActiveScraperPlatforms();
+      res.json(platforms);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch active scraper platforms" });
+    }
+  });
+
+  app.get("/api/scraper-platforms/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const platform = await storage.getScraperPlatform(id);
+      if (!platform) {
+        return res.status(404).json({ error: "Scraper platform not found" });
+      }
+      res.json(platform);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch scraper platform" });
+    }
+  });
+
+  app.post("/api/scraper-platforms", requireAuth, async (req, res) => {
+    try {
+      const platform = await storage.createScraperPlatform(req.body);
+      res.json(platform);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create scraper platform" });
+    }
+  });
+
+  app.patch("/api/scraper-platforms/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.updateScraperPlatform(id, req.body);
+      res.json({ message: "Scraper platform updated successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update scraper platform" });
+    }
+  });
+
   // County management routes
   app.get("/api/counties", requireAuth, async (req, res) => {
     try {
-      const counties = await storage.getActiveCounties();
+      // Return ALL counties for management page, not just active ones
+      const counties = await storage.getAllCounties();
       res.json(counties);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch counties" });
@@ -1003,6 +1055,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
       stream.pipe(res);
     } catch (error) {
       res.status(500).json({ error: "Failed to retrieve PDF" });
+    }
+  });
+
+  // App Settings routes
+  app.get("/api/settings", requireAuth, async (req, res) => {
+    try {
+      const settings = await storage.getAllAppSettings();
+      // Mask secret values in response
+      const maskedSettings = settings.map(s => ({
+        ...s,
+        value: s.isSecret ? '••••••••' : s.value
+      }));
+      res.json(maskedSettings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.get("/api/settings/:key", requireAuth, async (req, res) => {
+    try {
+      const { key } = req.params;
+      const setting = await storage.getAppSetting(key);
+      if (!setting) {
+        return res.status(404).json({ error: "Setting not found" });
+      }
+      // Mask secret value
+      res.json({
+        ...setting,
+        value: setting.isSecret ? '••••••••' : setting.value
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch setting" });
+    }
+  });
+
+  app.post("/api/settings", requireAuth, async (req, res) => {
+    try {
+      const { key, value, isSecret, description } = req.body;
+
+      if (!key || value === undefined) {
+        return res.status(400).json({ error: "Key and value are required" });
+      }
+
+      const setting = await storage.upsertAppSetting({
+        key,
+        value,
+        isSecret: isSecret ?? false,
+        description: description ?? null
+      });
+
+      res.json({
+        ...setting,
+        value: setting.isSecret ? '••••••••' : setting.value
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to save setting" });
+    }
+  });
+
+  app.delete("/api/settings/:key", requireAuth, async (req, res) => {
+    try {
+      const { key } = req.params;
+      await storage.deleteAppSetting(key);
+      res.json({ message: "Setting deleted" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete setting" });
+    }
+  });
+
+  // Get unmasked value for a specific setting (for editing)
+  app.get("/api/settings/:key/reveal", requireAuth, async (req, res) => {
+    try {
+      const { key } = req.params;
+      const setting = await storage.getAppSetting(key);
+      if (!setting) {
+        return res.status(404).json({ error: "Setting not found" });
+      }
+      // Return actual value (unmasked)
+      res.json(setting);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch setting" });
     }
   });
 

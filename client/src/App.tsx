@@ -11,6 +11,8 @@ import Liens from "@/pages/liens";
 import Counties from "@/pages/counties";
 import Runs from "@/pages/runs";
 import Settings from "@/pages/settings";
+import ScheduleSettings from "@/pages/schedule-settings";
+import SecretsSettings from "@/pages/secrets-settings";
 import NotFound from "@/pages/not-found";
 import { Login } from "@/pages/Login";
 import { useAuth } from "@/hooks/useAuth";
@@ -47,6 +49,8 @@ function AuthenticatedApp() {
         <Route path="/counties" component={Counties} />
         <Route path="/runs" component={Runs} />
         <Route path="/settings" component={Settings} />
+        <Route path="/settings/schedule" component={ScheduleSettings} />
+        <Route path="/settings/secrets" component={SecretsSettings} />
         <Route component={NotFound} />
       </Switch>
     </div>

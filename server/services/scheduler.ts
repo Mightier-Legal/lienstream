@@ -1,21 +1,11 @@
 import * as cron from 'node-cron';
-import moment from 'moment-timezone';
 import { AirtableService } from './airtable';
 import { Logger } from './logger';
-import { createCountyScraper, PuppeteerCountyScraper } from './county-scraper';
+import { createScraper, BaseScraper, ScrapedLien } from './scrapers';
 import { storage } from '../storage';
 
-// Type for scraped liens
-interface ScrapedLien {
-  recordingNumber: string;
-  recordingDate: Date;
-  documentUrl: string;
-  pdfBuffer?: Buffer;
-  grantor?: string;
-  grantee?: string;
-  address?: string;
-  amount?: number;
-}
+// Timezone type matching the schema enum
+type TimezoneType = 'America/New_York' | 'America/Chicago' | 'America/Denver' | 'America/Los_Angeles';
 
 export class SchedulerService {
   private airtableService: AirtableService;
@@ -27,7 +17,7 @@ export class SchedulerService {
   private currentMinute = 0;
   private skipWeekends = false;
   private isEnabled = true;
-  private currentScrapers: PuppeteerCountyScraper[] = [];
+  private currentScrapers: BaseScraper[] = [];
   private currentRunId: string | null = null;
   private shouldStop = false;
 
@@ -82,7 +72,7 @@ export class SchedulerService {
     });
   }
 
-  async updateSchedule(hour: number, minute: number, timezone: string = 'America/New_York', skipWeekends: boolean = false, isEnabled: boolean = true): Promise<void> {
+  async updateSchedule(hour: number, minute: number, timezone: TimezoneType = 'America/New_York', skipWeekends: boolean = false, isEnabled: boolean = true): Promise<void> {
     // Build the cron expression (timezone handled separately in scheduleTask)
     const cronExpression = this.buildCronExpression(hour, minute, skipWeekends);
 
@@ -197,13 +187,14 @@ export class SchedulerService {
     this.shouldStop = false;
     this.currentScrapers = [];
     
-    // For scheduled runs, automatically use yesterday's date
-    if (type === 'scheduled' && !fromDate && !toDate) {
+    // ALWAYS use yesterday's date when no dates are provided (both scheduled and manual runs)
+    // This ensures we're always searching for liens that were recorded the previous business day
+    if (!fromDate && !toDate) {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       fromDate = yesterday.toISOString().split('T')[0]; // Format as YYYY-MM-DD
       toDate = fromDate; // Same date for both to get just that day's records
-      await Logger.info(`Scheduled run: Processing records from ${fromDate}`, 'scheduler');
+      await Logger.info(`Using yesterday's date for ${type} run: ${fromDate}`, 'scheduler');
     }
     
     const runId = await storage.createAutomationRun({
@@ -258,26 +249,9 @@ export class SchedulerService {
             metadata: JSON.stringify({ county: county.name, state: county.state })
           });
 
-          // Create appropriate scraper for this county
-          const countyConfigData = county.config as any || {};
-          const countyConfig = {
-            url: countyConfigData.baseUrl || 'https://legacy.recorder.maricopa.gov',
-            searchUrl: countyConfigData.searchUrl || 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRecentPgDn.aspx',
-            selectors: countyConfigData.selectors || {}
-          };
-          
-          // Convert county to expected format for scraper
-          const scrapingCounty = {
-            id: county.id,
-            name: county.name,
-            state: county.state,
-            website: countyConfigData.baseUrl || 'https://legacy.recorder.maricopa.gov',
-            scraperEnabled: county.isActive,
-            searchUrl: countyConfigData.searchUrl || 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRecentPgDn.aspx',
-            selectors: countyConfigData.selectors || {}
-          };
-          
-          const scraper = createCountyScraper(scrapingCounty, countyConfig) as PuppeteerCountyScraper;
+          // Create appropriate scraper for this county using the factory
+          // The factory handles: fetching platform, merging configs, selecting scraper class
+          const scraper = await createScraper(county);
           allScrapers.push(scraper);
           this.currentScrapers.push(scraper);
           
@@ -317,10 +291,10 @@ export class SchedulerService {
           
           if (scrapedLiens.length > 0) {
             totalLiensFound += scrapedLiens.length;
-            
-            // Save liens to storage
-            await scraper.saveLiens(scrapedLiens);
-            
+
+            // Note: Liens are saved immediately during scraping in the new scrapers
+            // No need to call saveLiens here
+
             // Update county run
             await storage.updateCountyRun(countyRunId, {
               status: 'completed',

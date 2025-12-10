@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { County, CountyConfig } from "@shared/schema";
+import { County, CountyConfig, ScraperPlatform } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function Counties() {
   const { toast } = useToast();
@@ -27,6 +34,10 @@ export default function Counties() {
   const { data: counties, isLoading } = useQuery<County[]>({
     queryKey: ['/api/counties'],
     refetchInterval: 30000,
+  });
+
+  const { data: scraperPlatforms } = useQuery<ScraperPlatform[]>({
+    queryKey: ['/api/scraper-platforms'],
   });
 
   const addCountyMutation = useMutation({
@@ -107,30 +118,40 @@ export default function Counties() {
     if (!editingCounty) return;
 
     const formData = new FormData(e.currentTarget);
-    const config = editingCounty.config as CountyConfig;
+    const config = editingCounty.config as any;
 
-    // Update the config with form values
-    const updatedConfig: CountyConfig = {
+    // Update the config with form values, supporting both old and new field names
+    const updatedConfig = {
       ...config,
       baseUrl: formData.get('baseUrl') as string,
-      searchUrl: formData.get('searchUrl') as string,
-      documentUrlPattern: formData.get('documentUrlPattern') as string,
+      // Use new field names (searchFormUrl, documentDetailUrlPattern)
+      searchFormUrl: formData.get('searchFormUrl') as string,
+      documentDetailUrlPattern: formData.get('documentDetailUrlPattern') as string,
+      defaultDocumentType: formData.get('defaultDocumentType') as string,
+      dateFormat: formData.get('dateFormat') as string || config.dateFormat || 'MM/DD/YYYY',
       selectors: {
         ...config.selectors,
-        documentTypeValue: formData.get('documentTypeValue') as string,
       },
       delays: {
         ...config.delays,
-        pageLoad: parseInt(formData.get('pageLoadDelay') as string) || 2000,
-        betweenRequests: parseInt(formData.get('betweenRequestsDelay') as string) || 1000,
+        pageLoadWait: parseInt(formData.get('pageLoadWait') as string) || 3000,
+        betweenRequests: parseInt(formData.get('betweenRequests') as string) || 300,
+        afterFormSubmit: parseInt(formData.get('afterFormSubmit') as string) || 3000,
+        pdfLoadWait: parseInt(formData.get('pdfLoadWait') as string) || 2000,
       }
     };
+
+    // Get airtableCountyId - use empty string if blank, null if not provided
+    const airtableCountyIdValue = formData.get('airtableCountyId') as string;
+    const scraperPlatformIdValue = formData.get('scraperPlatformId') as string;
 
     updateCountyMutation.mutate({
       id: editingCounty.id,
       updates: {
         name: formData.get('name') as string,
         state: formData.get('state') as string,
+        airtableCountyId: airtableCountyIdValue || null,
+        scraperPlatformId: scraperPlatformIdValue || null,
         config: updatedConfig
       }
     });
@@ -140,10 +161,19 @@ export default function Counties() {
     const name = formData.get('name') as string;
     const state = formData.get('state') as string;
     const configJson = formData.get('config') as string;
+    const airtableCountyId = formData.get('airtableCountyId') as string;
+    const scraperPlatformId = formData.get('scraperPlatformId') as string;
 
     try {
       const config = JSON.parse(configJson);
-      addCountyMutation.mutate({ name, state, config, isActive: true });
+      addCountyMutation.mutate({
+        name,
+        state,
+        config,
+        isActive: true,
+        airtableCountyId: airtableCountyId || null,
+        scraperPlatformId: scraperPlatformId || null
+      });
     } catch (error) {
       toast({
         title: "Error",
@@ -156,58 +186,99 @@ export default function Counties() {
   const sampleConfigs = {
     maricopa: JSON.stringify({
       scrapeType: 'puppeteer',
-      baseUrl: 'https://recorder.maricopa.gov',
-      searchUrl: 'https://recorder.maricopa.gov/recording/document-search.html',
-      documentUrlPattern: 'https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/{recordingNumber}.pdf',
+      baseUrl: 'https://legacy.recorder.maricopa.gov',
+      searchFormUrl: 'https://legacy.recorder.maricopa.gov/recdocdata/',
+      searchResultsUrlPattern: 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataRecentPgDn.aspx?rec=0&suf=&nm=&bdt={startDate}&edt={endDate}&cde={docType}&max=500&res=True&doc1={docType}&doc2=&doc3=&doc4=&doc5=',
+      documentDetailUrlPattern: 'https://legacy.recorder.maricopa.gov/recdocdata/GetRecDataDetail.aspx?rec={recordingNumber}&suf=&nm=',
+      pdfUrlPatterns: [
+        'https://legacy.recorder.maricopa.gov/recdocdata/UnofficialPdfDocs.aspx?rec={recordingNumber}&pg=1&cls=RecorderDocuments&suf=',
+        'https://legacy.recorder.maricopa.gov/UnOfficialDocs/pdf/{recordingNumber}.pdf'
+      ],
+      documentTypes: [
+        { code: 'HL', name: 'Hospital Lien', description: 'Medical/Hospital Lien' }
+      ],
+      defaultDocumentType: 'HL',
+      dateFormat: 'MM/DD/YYYY',
       selectors: {
-        documentTypeField: 'select[name="documentType"]',
-        documentTypeValue: 'MEDICAL LN',
-        startDateField: 'input[name="startDate"]',
-        endDateField: 'input[name="endDate"]',
-        searchButton: 'button[type="submit"]',
-        resultsTable: '.search-results',
-        recordingNumberLinks: '.search-results tr td:first-child a'
+        startDateField: "#ctl00_ContentPlaceHolder1_datepicker_dateInput",
+        endDateField: "#ctl00_ContentPlaceHolder1_datepickerEnd_dateInput",
+        documentTypeDropdown: "#ctl00_ContentPlaceHolder1_ddlDocCodes",
+        searchButton: "#ctl00_ContentPlaceHolder1_btnSearchPanel1",
+        resultsTable: 'table',
+        recordingNumberLinks: 'a',
+        noResultsIndicator: 'No results exist for this search',
+        pagesColumnLink: "td a[href*='unofficialpdfdocs']"
       },
       parsing: {
-        amountPattern: 'Amount claimed due for care of patient as of date of recording[:\\\\s]*\\\\$?([\\\\d,]+\\\\.?\\\\d*)',
-        debtorPattern: 'Debtor[:\\\\s]*(.*?)(?:\\\\n|Address|$)',
-        creditorPattern: 'Creditor[:\\\\s]*(.*?)(?:\\\\n|Address|$)',
-        addressPattern: '(\\\\d+.*?(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Circle|Cir|Court|Ct|Way).*?(?:AZ|Arizona).*?\\\\d{5})'
+        recordingNumberPattern: '^\\\\d{10,12}$',
+        amountPattern: '\\\\$(\\\\d{1,3}(?:,\\\\d{3})*(?:\\\\.\\\\d{2})?)',
+        debtorPattern: 'Name\\\\(s\\\\)([\\\\s\\\\S]*?)Document Code',
+        addressPattern: '(\\\\d+\\\\s+[A-Za-z0-9\\\\s]+(?:ST|AVE|RD|DR|LN|CT|WAY|BLVD|PL)[\\\\s,]*[A-Za-z\\\\s]+,?\\\\s+AZ\\\\s+\\\\d{5})'
       },
       delays: {
-        pageLoad: 2000,
-        betweenRequests: 1000,
-        pdfLoad: 2000
+        pageLoadWait: 3000,
+        betweenRequests: 300,
+        afterFormSubmit: 3000,
+        pdfLoadWait: 2000
       },
-      authentication: {
-        type: 'none'
+      rateLimit: {
+        maxRequestsPerMinute: 30,
+        maxPagesPerRun: 10
       }
     }, null, 2),
-    clark: JSON.stringify({
+    jefferson: JSON.stringify({
       scrapeType: 'puppeteer',
-      baseUrl: 'https://recorder.clarkcountynv.gov',
-      searchUrl: 'https://recorder.clarkcountynv.gov/onlinesearch',
-      documentUrlPattern: 'https://recorder.clarkcountynv.gov/onlinesearch/showdocument?documentnumber={recordingNumber}',
-      selectors: {
-        documentTypeField: '#documentType',
-        documentTypeValue: 'MEDICAL LIEN',
-        startDateField: '#startDate',
-        endDateField: '#endDate',
-        searchButton: '#searchButton'
+      state: 'AL',
+      baseUrl: 'https://landmarkweb.jccal.org',
+      searchFormUrl: 'https://landmarkweb.jccal.org/LandmarkWeb/search/index?theme=.blue&section=undefined&quickSearchSelection=undefined',
+      requiresDisclaimer: false,
+      requiresCaptcha: false,
+      documentTypes: [
+        {
+          code: 'PPHL,PPHL_LR,PPHL_MAPBIR',
+          name: 'Hospital Lien',
+          description: 'Hospital Lien / Lien on Pers Prop'
+        }
+      ],
+      defaultDocumentType: 'PPHL,PPHL_LR,PPHL_MAPBIR',
+      dateSelection: {
+        method: 'input',
+        format: 'MM/DD/YYYY',
+        presetOptions: ['7D', '30D', '90D']
       },
-      parsing: {
-        amountPattern: 'Total amount claimed[:\\\\s]*\\\\$?([\\\\d,]+\\\\.?\\\\d*)',
-        debtorPattern: 'Debtor[:\\\\s]*(.*?)(?:\\\\n|Address|$)',
-        creditorPattern: 'Medical Provider[:\\\\s]*(.*?)(?:\\\\n|Address|$)',
-        addressPattern: '(\\\\d+.*?(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Circle|Cir|Court|Ct|Way).*?(?:NV|Nevada).*?\\\\d{5})'
+      dateFormat: 'MM/DD/YYYY',
+      selectors: {
+        documentTypeInput: '#documentType-DocumentType',
+        startDateField: '#beginDate-DocumentType',
+        endDateField: '#endDate-DocumentType',
+        datePresetDropdown: '#lastNumOfDays-DocumentType',
+        searchButton: '#submit-DocumentType',
+        backToResultsButton: '#returnToSearchButton',
+        resultsTable: '???',
+        resultRows: '???',
+        instrumentNumberCell: '???',
+        pdfViewerLink: '???'
+      },
+      fieldMapping: {
+        recordingNumber: 'Instrument #',
+        recordDate: 'Record Date',
+        creditorName: 'Grantor',
+        debtorName: 'Grantee',
+        documentType: 'Doc Type',
+        pageCount: '# of Pages'
+      },
+      pdfAccess: {
+        method: 'detailPage'
       },
       delays: {
-        pageLoad: 3000,
-        betweenRequests: 1500,
-        pdfLoad: 2500
+        pageLoadWait: 3000,
+        betweenRequests: 500,
+        afterFormSubmit: 3000,
+        pdfLoadWait: 2000
       },
-      authentication: {
-        type: 'none'
+      rateLimit: {
+        maxRequestsPerMinute: 20,
+        maxPagesPerRun: 10
       }
     }, null, 2)
   };
@@ -275,43 +346,71 @@ export default function Counties() {
                     <Input id="state" name="state" placeholder="e.g., Nevada" required />
                   </div>
                 </div>
-                
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="scraperPlatformId">Scraper Platform</Label>
+                    <Select name="scraperPlatformId">
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select platform..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {scraperPlatforms?.map((platform) => (
+                          <SelectItem key={platform.id} value={platform.id}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500 mt-1">Which scraper implementation to use</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="airtableCountyId">Airtable County ID</Label>
+                    <Input
+                      id="airtableCountyId"
+                      name="airtableCountyId"
+                      placeholder="e.g., recXXXXXXXXXXXXXX"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Optional: Airtable record ID for linking liens to this county</p>
+                  </div>
+                </div>
+
                 <div>
                   <Label htmlFor="config">Configuration (JSON)</Label>
                   <Tabs defaultValue="custom" className="mt-2">
                     <TabsList>
                       <TabsTrigger value="custom">Custom</TabsTrigger>
                       <TabsTrigger value="maricopa">Maricopa Template</TabsTrigger>
-                      <TabsTrigger value="clark">Clark County Template</TabsTrigger>
+                      <TabsTrigger value="jefferson">Jefferson County Template</TabsTrigger>
                     </TabsList>
                     <TabsContent value="custom">
-                      <Textarea 
-                        id="config" 
-                        name="config" 
+                      <Textarea
+                        id="config"
+                        name="config"
                         rows={15}
                         placeholder="Enter county configuration JSON..."
                         className="font-mono text-sm"
-                        required 
+                        required
                       />
                     </TabsContent>
                     <TabsContent value="maricopa">
-                      <Textarea 
-                        id="config" 
-                        name="config" 
+                      <Textarea
+                        id="config"
+                        name="config"
                         rows={15}
                         defaultValue={sampleConfigs.maricopa}
                         className="font-mono text-sm"
-                        required 
+                        required
                       />
                     </TabsContent>
-                    <TabsContent value="clark">
-                      <Textarea 
-                        id="config" 
-                        name="config" 
+                    <TabsContent value="jefferson">
+                      <Textarea
+                        id="config"
+                        name="config"
                         rows={15}
-                        defaultValue={sampleConfigs.clark}
+                        defaultValue={sampleConfigs.jefferson}
                         className="font-mono text-sm"
-                        required 
+                        required
                       />
                     </TabsContent>
                   </Tabs>
@@ -390,26 +489,38 @@ export default function Counties() {
                       <div>
                         <strong>Search URL:</strong><br />
                         <code className="text-xs bg-slate-100 px-2 py-1 rounded break-all overflow-hidden">
-                          {config.searchUrl}
+                          {(config as any).searchFormUrl || config.searchUrl || "Not specified"}
                         </code>
                       </div>
                       <div>
-                        <strong>Document Pattern:</strong><br />
+                        <strong>Document Detail Pattern:</strong><br />
                         <code className="text-xs bg-slate-100 px-2 py-1 rounded break-all overflow-hidden max-w-full inline-block">
-                          {config.documentUrlPattern || "Dynamic/Search-based retrieval"}
+                          {(config as any).documentDetailUrlPattern || config.documentUrlPattern || "Dynamic/Search-based retrieval"}
                         </code>
                       </div>
                       <div>
                         <strong>Document Type:</strong><br />
                         <span className="text-slate-600">
-                          {config.selectors.documentTypeValue || "Not specified"}
+                          {(config as any).defaultDocumentType || config.selectors?.documentTypeValue || "Not specified"}
                         </span>
                       </div>
                       <div>
-                        <strong>Authentication:</strong><br />
+                        <strong>Date Format:</strong><br />
                         <span className="text-slate-600">
-                          {config.authentication?.type || "None"}
+                          {(config as any).dateFormat || "MM/DD/YYYY"}
                         </span>
+                      </div>
+                      <div>
+                        <strong>Scraper Platform:</strong><br />
+                        <Badge variant={county.scraperPlatformId ? "default" : "outline"}>
+                          {scraperPlatforms?.find(p => p.id === county.scraperPlatformId)?.name || "Not assigned"}
+                        </Badge>
+                      </div>
+                      <div>
+                        <strong>Airtable County ID:</strong><br />
+                        <code className="text-xs bg-slate-100 px-2 py-1 rounded">
+                          {county.airtableCountyId || "Not configured"}
+                        </code>
                       </div>
                     </div>
                   </CardContent>
@@ -473,6 +584,34 @@ export default function Counties() {
                     />
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-scraperPlatformId">Scraper Platform</Label>
+                    <Select name="scraperPlatformId" defaultValue={editingCounty.scraperPlatformId || ""}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select platform..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {scraperPlatforms?.map((platform) => (
+                          <SelectItem key={platform.id} value={platform.id}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500 mt-1">Which scraper implementation to use</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-airtableCountyId">Airtable County ID</Label>
+                    <Input
+                      id="edit-airtableCountyId"
+                      name="airtableCountyId"
+                      defaultValue={editingCounty.airtableCountyId || ""}
+                      placeholder="e.g., recXXXXXXXXXXXXXX"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Airtable record ID for linking liens to this county</p>
+                  </div>
+                </div>
               </div>
 
               {/* URLs */}
@@ -483,45 +622,57 @@ export default function Counties() {
                   <Input
                     id="edit-baseUrl"
                     name="baseUrl"
-                    defaultValue={(editingCounty.config as CountyConfig).baseUrl}
+                    defaultValue={(editingCounty.config as any).baseUrl}
                     placeholder="https://recorder.county.gov"
                     required
                   />
                 </div>
                 <div>
-                  <Label htmlFor="edit-searchUrl">Search URL</Label>
+                  <Label htmlFor="edit-searchFormUrl">Search Form URL</Label>
                   <Input
-                    id="edit-searchUrl"
-                    name="searchUrl"
-                    defaultValue={(editingCounty.config as CountyConfig).searchUrl}
+                    id="edit-searchFormUrl"
+                    name="searchFormUrl"
+                    defaultValue={(editingCounty.config as any).searchFormUrl || (editingCounty.config as any).searchUrl}
                     placeholder="https://recorder.county.gov/search"
                     required
                   />
                 </div>
                 <div>
-                  <Label htmlFor="edit-documentUrlPattern">Document URL Pattern</Label>
+                  <Label htmlFor="edit-documentDetailUrlPattern">Document Detail URL Pattern</Label>
                   <Input
-                    id="edit-documentUrlPattern"
-                    name="documentUrlPattern"
-                    defaultValue={(editingCounty.config as CountyConfig).documentUrlPattern}
-                    placeholder="https://recorder.county.gov/pdf/{recordingNumber}.pdf"
+                    id="edit-documentDetailUrlPattern"
+                    name="documentDetailUrlPattern"
+                    defaultValue={(editingCounty.config as any).documentDetailUrlPattern || (editingCounty.config as any).documentUrlPattern}
+                    placeholder="https://recorder.county.gov/detail?rec={recordingNumber}"
                   />
                   <p className="text-xs text-slate-500 mt-1">Use {'{recordingNumber}'} as placeholder</p>
                 </div>
               </div>
 
-              {/* Selectors */}
+              {/* Document Type */}
               <div className="space-y-4">
                 <h4 className="font-medium text-slate-800 border-b pb-2">Document Type</h4>
-                <div>
-                  <Label htmlFor="edit-documentTypeValue">Document Type Value</Label>
-                  <Input
-                    id="edit-documentTypeValue"
-                    name="documentTypeValue"
-                    defaultValue={(editingCounty.config as CountyConfig).selectors?.documentTypeValue}
-                    placeholder="MEDICAL LN"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">The value to select for medical liens</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-defaultDocumentType">Default Document Type Code</Label>
+                    <Input
+                      id="edit-defaultDocumentType"
+                      name="defaultDocumentType"
+                      defaultValue={(editingCounty.config as any).defaultDocumentType || (editingCounty.config as any).selectors?.documentTypeValue}
+                      placeholder="HL"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">e.g., HL for Hospital Lien</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-dateFormat">Date Format</Label>
+                    <Input
+                      id="edit-dateFormat"
+                      name="dateFormat"
+                      defaultValue={(editingCounty.config as any).dateFormat || "MM/DD/YYYY"}
+                      placeholder="MM/DD/YYYY"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Format expected by county site</p>
+                  </div>
                 </div>
               </div>
 
@@ -530,25 +681,47 @@ export default function Counties() {
                 <h4 className="font-medium text-slate-800 border-b pb-2">Timing (milliseconds)</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="edit-pageLoadDelay">Page Load Delay</Label>
+                    <Label htmlFor="edit-pageLoadWait">Page Load Wait</Label>
                     <Input
-                      id="edit-pageLoadDelay"
-                      name="pageLoadDelay"
+                      id="edit-pageLoadWait"
+                      name="pageLoadWait"
                       type="number"
-                      defaultValue={(editingCounty.config as CountyConfig).delays?.pageLoad || 2000}
+                      defaultValue={(editingCounty.config as any).delays?.pageLoadWait || (editingCounty.config as any).delays?.pageLoad || 3000}
                       min={500}
+                      max={30000}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-betweenRequests">Between Requests</Label>
+                    <Input
+                      id="edit-betweenRequests"
+                      name="betweenRequests"
+                      type="number"
+                      defaultValue={(editingCounty.config as any).delays?.betweenRequests || 300}
+                      min={100}
                       max={10000}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="edit-betweenRequestsDelay">Between Requests Delay</Label>
+                    <Label htmlFor="edit-afterFormSubmit">After Form Submit</Label>
                     <Input
-                      id="edit-betweenRequestsDelay"
-                      name="betweenRequestsDelay"
+                      id="edit-afterFormSubmit"
+                      name="afterFormSubmit"
                       type="number"
-                      defaultValue={(editingCounty.config as CountyConfig).delays?.betweenRequests || 1000}
+                      defaultValue={(editingCounty.config as any).delays?.afterFormSubmit || 3000}
                       min={500}
-                      max={10000}
+                      max={30000}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-pdfLoadWait">PDF Load Wait</Label>
+                    <Input
+                      id="edit-pdfLoadWait"
+                      name="pdfLoadWait"
+                      type="number"
+                      defaultValue={(editingCounty.config as any).delays?.pdfLoadWait || (editingCounty.config as any).delays?.pdfLoad || 2000}
+                      min={500}
+                      max={30000}
                     />
                   </div>
                 </div>
