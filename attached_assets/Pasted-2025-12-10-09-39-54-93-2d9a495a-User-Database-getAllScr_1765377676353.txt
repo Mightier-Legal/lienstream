@@ -1,0 +1,96 @@
+2025-12-10 09:39:54.93
+2d9a495a
+User
+[Database] getAllScraperPlatforms attempt 1 failed: Connection terminated due to connection timeout
+2025-12-10 09:39:56.93
+2d9a495a
+User
+at async NeonPreparedQuery.execute (file:///home/runner/workspace/node_modules/drizzle-orm/neon-serverless/session.js:76:20)
+2025-12-10 09:39:56.93
+2d9a495a
+User
+at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+2025-12-10 09:39:56.93
+2d9a495a
+User
+[Storage] Error initializing scraper platforms: Error: Connection terminated due to connection timeout
+2025-12-10 09:39:56.93
+2d9a495a
+User
+at async file:///home/runner/workspace/dist/index.js:739:18
+2025-12-10 09:39:56.93
+2d9a495a
+User
+at async DatabaseStorage.initializeScraperPlatforms (file:///home/runner/workspace/dist/index.js:296:37)
+2025-12-10 09:39:56.93
+2d9a495a
+User
+at async retryDatabaseOperation (file:///home/runner/workspace/dist/index.js:262:14)
+2025-12-10 09:39:56.93
+2d9a495a
+User
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2025-12-10 09:39:56.93
+2d9a495a
+User
+at async DatabaseStorage.getAllScraperPlatforms (file:///home/runner/workspace/dist/index.js:738:16)
+2025-12-10 09:39:56.93
+2d9a495a
+User
+at async DatabaseStorage.initializeDefaults (file:///home/runner/workspace/dist/index.js:291:9)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1384
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at callListener (/home/runner/workspace/node_modules/ws/lib/event-target.js:290:14)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at v.emit (file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:397:12)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+TypeError: Cannot set property message of # which has only a getter
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at WebSocket. (file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:986:42)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at An._handleErrorWhileConnecting (file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1290:38)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+^
+2025-12-10 09:40:14.13
+2d9a495a
+User
+Node.js v20.19.3
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at WebSocket.emit (node:events:524:28)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at fn.emit (file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:397:12)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at An._connectionCallback (file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1384:72)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+connect",o),this._clients=this._clients.filter(u=>u!==t),s&&(o.message="Connect\
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at WebSocket.onError (/home/runner/workspace/node_modules/ws/lib/event-target.js:230:9)
+2025-12-10 09:40:14.13
+2d9a495a
+User
+at An._handleErrorEvent (file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1291:33)
