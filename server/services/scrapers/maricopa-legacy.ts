@@ -2,6 +2,7 @@ import { Page } from 'puppeteer';
 import { BaseScraper, ScrapedLien, MergedScraperConfig } from './base-scraper';
 import { Logger } from '../logger';
 import { County, ScraperPlatform } from '../../../shared/schema';
+import { storage } from '../../storage';
 
 /**
  * Maricopa Legacy Scraper
@@ -142,6 +143,12 @@ export class MaricopaLegacyScraper extends BaseScraper {
         await Logger.info(`Processing recording ${i + 1}/${recordingsToProcess.length}: ${recordingNumber}`, 'maricopa-legacy');
 
         try {
+          // Check if this recording number already exists in the database
+          const existingLien = await storage.getLienByRecordingNumber(recordingNumber);
+          if (existingLien) {
+            await Logger.info(`Skipping ${recordingNumber} - already exists in database`, 'maricopa-legacy');
+            continue;
+          }
           // Ensure browser is connected
           if (!this.browser || !this.browser.isConnected()) {
             await Logger.info('Browser not connected, reinitializing...', 'maricopa-legacy');
@@ -503,7 +510,7 @@ export class MaricopaLegacyScraper extends BaseScraper {
 
       // Check for next page
       hasNextPage = await targetPage.evaluate(() => {
-        const nextLinks = Array.from(document.querySelectorAll('a, input[type="button"], button'));
+        const nextLinks = Array.from(document.querySelectorAll('a, input[type="button"], input[type="submit"], button'));
 
         for (const link of nextLinks) {
           const text = (link.textContent || (link as HTMLInputElement).value || '').toLowerCase();
