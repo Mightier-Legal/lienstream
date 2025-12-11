@@ -200,8 +200,25 @@ export default function Liens() {
     );
   };
 
-  const formatDate = (dateStr: string | Date) => {
-    const date = new Date(dateStr);
+  const formatDate = (dateStr: string | Date | null | undefined) => {
+    if (!dateStr) return '-';
+
+    // Handle PostgreSQL date string format (YYYY-MM-DD)
+    // Add time component to avoid timezone issues
+    let date: Date;
+    if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      // Parse as local date, not UTC
+      const [year, month, day] = dateStr.split('-').map(Number);
+      date = new Date(year, month - 1, day);
+    } else {
+      date = new Date(dateStr);
+    }
+
+    // Check for invalid date (epoch or NaN)
+    if (isNaN(date.getTime()) || date.getFullYear() < 1990) {
+      return '-';
+    }
+
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',

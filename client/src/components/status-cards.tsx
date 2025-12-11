@@ -104,53 +104,7 @@ export function StatusCards() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Date Filter Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-800">
-              {isToday ? "Today's Statistics" : `Statistics for ${displayDate}`}
-            </h3>
-            <p className="text-sm text-slate-600 mt-1">
-              {isToday ? "Real-time data for medical liens processed today" : `Historical data for medical liens on ${displayDate}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-500" />
-            <Input
-              type="date"
-              value={dateInput}
-              onChange={(e) => setDateInput(e.target.value)}
-              max={today}
-              className="w-40"
-            />
-            <Button
-              onClick={() => setSelectedDate(dateInput)}
-              disabled={dateInput === selectedDate}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              size="sm"
-            >
-              View
-            </Button>
-            {!isToday && (
-              <Button
-                onClick={() => {
-                  setSelectedDate(today);
-                  setDateInput(today);
-                }}
-                variant="outline"
-                size="sm"
-              >
-                Today
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-      
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
       {cards.map((card, index) => {
         const bgGradients = {
           emerald: "from-emerald-500 to-emerald-600",
@@ -206,7 +160,6 @@ export function StatusCards() {
           </div>
         );
       })}
-      </div>
     </div>
   );
 }

@@ -63,7 +63,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const isRunning = scheduler.isAutomationRunning();
       const latestRun = await storage.getLatestAutomationRun();
-      
+
       res.json({
         isRunning,
         latestRun,
@@ -71,6 +71,151 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch automation status" });
+    }
+  });
+
+  // Scraper progress - real-time visibility into what's actually happening
+  app.get("/api/automation/progress", requireAuth, async (req, res) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // 1. Check stored PDFs folder
+      const pdfDir = 'stored_pdfs';
+      let pdfCount = 0;
+      let recentPdfs: { id: string; filename: string; createdAt: string; size: number }[] = [];
+
+      if (fs.existsSync(pdfDir)) {
+        const files = fs.readdirSync(pdfDir);
+        const pdfFiles = files.filter(f => f.endsWith('.pdf'));
+        pdfCount = pdfFiles.length;
+
+        // Get recent PDFs (last 10)
+        const metaFiles = files.filter(f => f.endsWith('.json'));
+        const pdfMetas = metaFiles.map(f => {
+          try {
+            const meta = JSON.parse(fs.readFileSync(path.join(pdfDir, f), 'utf8'));
+            return {
+              id: meta.id || f.replace('.json', ''),
+              filename: meta.filename || meta.recordingNumber,
+              createdAt: meta.createdAt,
+              size: meta.size || 0
+            };
+          } catch {
+            return null;
+          }
+        }).filter(Boolean) as { id: string; filename: string; createdAt: string; size: number }[];
+
+        // Sort by date descending and take last 10
+        recentPdfs = pdfMetas
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 10);
+      }
+
+      // 2. Check database for recent liens
+      const now = new Date();
+      const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      // Get all liens and filter by time
+      const allLiens = await storage.getRecentLiens(1000);
+
+      const liensLast5Min = allLiens.filter(l =>
+        l.createdAt && new Date(l.createdAt) >= fiveMinutesAgo
+      ).length;
+
+      const liensLastHour = allLiens.filter(l =>
+        l.createdAt && new Date(l.createdAt) >= oneHourAgo
+      ).length;
+
+      const liensToday = allLiens.filter(l =>
+        l.createdAt && new Date(l.createdAt) >= todayStart
+      ).length;
+
+      // 3. Get liens by status
+      const pendingLiens = allLiens.filter(l => l.status === 'pending');
+      const syncedLiens = allLiens.filter(l => l.status === 'synced');
+      const liensWithPdfs = allLiens.filter(l => l.pdfUrl || l.documentUrl?.includes('/api/pdf/'));
+      const liensWithoutPdfs = allLiens.filter(l => !l.pdfUrl && !l.documentUrl?.includes('/api/pdf/'));
+
+      // 4. Get the most recent lien
+      const mostRecentLien = allLiens.length > 0 ? {
+        recordingNumber: allLiens[0].recordingNumber,
+        recordDate: allLiens[0].recordDate,
+        createdAt: allLiens[0].createdAt,
+        status: allLiens[0].status,
+        hasPdf: !!(allLiens[0].pdfUrl || allLiens[0].documentUrl?.includes('/api/pdf/'))
+      } : null;
+
+      // 5. Get latest system logs (scraper activity)
+      const recentLogs = await storage.getRecentSystemLogs(20);
+      const scraperLogs = recentLogs.filter(l =>
+        l.component === 'maricopa-legacy' ||
+        l.component === 'scheduler' ||
+        l.component === 'pdf-storage'
+      );
+
+      // 6. Check if there's actual recent activity (within last 2 minutes)
+      const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+      const hasRecentActivity = allLiens.some(l =>
+        l.createdAt && new Date(l.createdAt) >= twoMinutesAgo
+      ) || scraperLogs.some(l =>
+        l.timestamp && new Date(l.timestamp) >= twoMinutesAgo
+      );
+
+      // 7. Official status from scheduler
+      const isRunning = scheduler.isAutomationRunning();
+      const latestRun = await storage.getLatestAutomationRun();
+
+      res.json({
+        // Official status
+        officialStatus: {
+          isRunning,
+          latestRunStatus: latestRun?.status || 'idle',
+          latestRunId: latestRun?.id
+        },
+
+        // Real activity indicators
+        realActivity: {
+          hasRecentActivity,
+          liensCreatedLast5Min: liensLast5Min,
+          liensCreatedLastHour: liensLastHour,
+          liensCreatedToday: liensToday
+        },
+
+        // Database stats
+        database: {
+          totalLiens: allLiens.length,
+          pendingLiens: pendingLiens.length,
+          syncedLiens: syncedLiens.length,
+          liensWithPdfs: liensWithPdfs.length,
+          liensWithoutPdfs: liensWithoutPdfs.length
+        },
+
+        // PDF storage stats
+        pdfStorage: {
+          totalPdfs: pdfCount,
+          recentPdfs
+        },
+
+        // Most recent lien
+        mostRecentLien,
+
+        // Recent scraper logs
+        recentLogs: scraperLogs.slice(0, 10).map(l => ({
+          level: l.level,
+          message: l.message,
+          component: l.component,
+          timestamp: l.timestamp
+        })),
+
+        // Timestamp
+        checkedAt: now.toISOString()
+      });
+    } catch (error: any) {
+      console.error('Progress endpoint error:', error);
+      res.status(500).json({ error: "Failed to fetch progress", details: error.message });
     }
   });
 

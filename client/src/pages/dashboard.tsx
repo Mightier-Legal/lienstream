@@ -1,6 +1,6 @@
 import { StatusCards } from "@/components/status-cards";
 import { AutomationStatus } from "@/components/automation-status";
-import { SystemLogs } from "@/components/system-logs";
+import { ScraperProgress } from "@/components/scraper-progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -154,14 +154,14 @@ export default function Dashboard() {
           <StatusCards />
         </section>
 
-        {/* Section 2: Processing Pipeline */}
+        {/* Section 2: Scraper Progress - Real-time activity */}
         <section>
-          <AutomationStatus />
+          <ScraperProgress />
         </section>
 
-        {/* Section 3: System Activity - Full width */}
+        {/* Section 3: Processing Pipeline */}
         <section>
-          <SystemLogs />
+          <AutomationStatus />
         </section>
       </div>
     </main>
