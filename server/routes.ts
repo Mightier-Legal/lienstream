@@ -696,6 +696,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Re-download PDFs for selected liens
+  app.post("/api/liens/redownload-pdfs", requireAuth, async (req, res) => {
+    try {
+      const { recordingNumbers } = req.body;
+
+      if (!recordingNumbers || !Array.isArray(recordingNumbers) || recordingNumbers.length === 0) {
+        return res.status(400).json({ error: "recordingNumbers array is required" });
+      }
+
+      await Logger.info(`Re-downloading PDFs for ${recordingNumbers.length} liens`, 'api');
+
+      let successCount = 0;
+      let failedCount = 0;
+      const results: { recordingNumber: string; success: boolean; error?: string }[] = [];
+
+      // Get the public base URL for storing new PDFs
+      const { getPublicBaseUrl } = await import('./services/scrapers/base-scraper');
+      const baseUrl = await getPublicBaseUrl();
+
+      for (const recordingNumber of recordingNumbers) {
+        try {
+          // Re-download from Maricopa county
+          const buffer = await pdfStorage.redownloadPdf(recordingNumber);
+
+          if (buffer) {
+            // Store the new PDF
+            const newPdfId = pdfStorage.storePdf(buffer, recordingNumber);
+            const newPdfUrl = `${baseUrl}/api/pdf/${newPdfId}`;
+
+            // Update the lien in the database
+            await storage.updateLienByRecordingNumber(recordingNumber, {
+              pdfUrl: newPdfUrl,
+              documentUrl: newPdfUrl,
+              status: 'redownloaded' // Flag as re-downloaded, ready to push to Airtable
+            });
+
+            successCount++;
+            results.push({ recordingNumber, success: true });
+            await Logger.success(`Re-downloaded PDF for ${recordingNumber}`, 'api');
+          } else {
+            failedCount++;
+            results.push({ recordingNumber, success: false, error: 'PDF not available from county' });
+            await Logger.warning(`Failed to re-download PDF for ${recordingNumber}`, 'api');
+          }
+        } catch (error) {
+          failedCount++;
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+          results.push({ recordingNumber, success: false, error: errorMsg });
+          await Logger.error(`Error re-downloading PDF for ${recordingNumber}: ${errorMsg}`, 'api');
+        }
+      }
+
+      await Logger.info(`Re-download complete: ${successCount} success, ${failedCount} failed`, 'api');
+
+      res.json({
+        success: true,
+        successCount,
+        failedCount,
+        results,
+        message: `Re-downloaded ${successCount} PDFs, ${failedCount} failed`
+      });
+    } catch (error) {
+      await Logger.error(`Failed to re-download PDFs: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to re-download PDFs" });
+    }
+  });
+
+  // Push selected liens to Airtable (by recording numbers)
+  app.post("/api/liens/push-to-airtable", requireAuth, async (req, res) => {
+    try {
+      const { recordingNumbers } = req.body;
+
+      if (!recordingNumbers || !Array.isArray(recordingNumbers) || recordingNumbers.length === 0) {
+        return res.status(400).json({ error: "recordingNumbers array is required" });
+      }
+
+      await Logger.info(`Pushing ${recordingNumbers.length} liens to Airtable`, 'api');
+
+      // Get the liens by recording numbers
+      const liensToSync = [];
+      for (const rn of recordingNumbers) {
+        const lien = await storage.getLienByRecordingNumber(rn);
+        if (lien) {
+          liensToSync.push(lien);
+        }
+      }
+
+      if (liensToSync.length === 0) {
+        return res.status(404).json({ error: "No liens found for the given recording numbers" });
+      }
+
+      // Sync to Airtable
+      const airtableService = new AirtableService();
+      const syncResult = await airtableService.syncLiensToAirtable(liensToSync);
+
+      await Logger.success(`Pushed ${syncResult.synced} liens to Airtable, ${syncResult.failed} failed`, 'api');
+
+      res.json({
+        success: true,
+        synced: syncResult.synced,
+        failed: syncResult.failed,
+        total: liensToSync.length,
+        message: `Pushed ${syncResult.synced} liens to Airtable`
+      });
+    } catch (error) {
+      await Logger.error(`Failed to push liens to Airtable: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to push liens to Airtable" });
+    }
+  });
+
   // Recent liens with pagination
   app.get("/api/liens/recent", requireAuth, async (req, res) => {
     try {

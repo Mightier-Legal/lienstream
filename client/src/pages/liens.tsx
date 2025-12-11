@@ -116,6 +116,60 @@ export default function Liens() {
     }
   });
 
+  // Re-download PDFs mutation
+  const [isRedownloading, setIsRedownloading] = useState(false);
+  const redownloadPdfsMutation = useMutation({
+    mutationFn: async (recordingNumbers: string[]) => {
+      const response = await fetch('/api/liens/redownload-pdfs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordingNumbers }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to re-download PDFs');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/liens/recent'] });
+      setSelectedLienIds(new Set());
+      setIsRedownloading(false);
+      console.log(`Successfully re-downloaded ${data.successCount} PDFs, ${data.failedCount} failed`);
+    },
+    onError: (error) => {
+      console.error('Failed to re-download PDFs:', error);
+      setIsRedownloading(false);
+    }
+  });
+
+  // Push to Airtable mutation
+  const [isPushing, setIsPushing] = useState(false);
+  const pushToAirtableMutation = useMutation({
+    mutationFn: async (recordingNumbers: string[]) => {
+      const response = await fetch('/api/liens/push-to-airtable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordingNumbers }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to push to Airtable');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/liens/recent'] });
+      setSelectedLienIds(new Set());
+      setIsPushing(false);
+      console.log(`Successfully pushed ${data.synced} liens to Airtable`);
+    },
+    onError: (error) => {
+      console.error('Failed to push to Airtable:', error);
+      setIsPushing(false);
+    }
+  });
+
   // Toggle selection of a single lien
   const toggleLienSelection = (lienId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -189,6 +243,7 @@ export default function Liens() {
       pending: { className: "bg-yellow-100 text-yellow-800 border-yellow-200", label: "Pending" },
       processing: { className: "bg-blue-100 text-blue-800 border-blue-200", label: "Processing" },
       synced: { className: "bg-green-100 text-green-800 border-green-200", label: "Synced" },
+      redownloaded: { className: "bg-orange-100 text-orange-800 border-orange-200", label: "Re-downloaded" },
       mailer_sent: { className: "bg-purple-100 text-purple-800 border-purple-200", label: "Mailer Sent" },
       completed: { className: "bg-slate-100 text-slate-800 border-slate-200", label: "Completed" },
       failed: { className: "bg-red-100 text-red-800 border-red-200", label: "Failed" },
@@ -224,6 +279,22 @@ export default function Liens() {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+    });
+  };
+
+  // Format date with time in Eastern timezone for Scraped column
+  const formatDateTime = (dateStr: string | Date | null | undefined) => {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime()) || date.getFullYear() < 1990) return '-';
+
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'America/New_York'
     });
   };
 
@@ -353,6 +424,7 @@ export default function Liens() {
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="redownloaded">Re-downloaded</SelectItem>
               <SelectItem value="processing">Processing</SelectItem>
               <SelectItem value="synced">Synced</SelectItem>
               <SelectItem value="mailer_sent">Mailer Sent</SelectItem>
@@ -393,6 +465,56 @@ export default function Liens() {
                 Clear Selection
               </Button>
               <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const recordingNumbers = getSelectedRecordingNumbers();
+                  if (recordingNumbers.length > 0) {
+                    setIsRedownloading(true);
+                    redownloadPdfsMutation.mutate(recordingNumbers);
+                  }
+                }}
+                disabled={isRedownloading}
+                className="bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100"
+              >
+                {isRedownloading ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin mr-2"></i>
+                    Re-downloading...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-download mr-2"></i>
+                    Re-download PDFs
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const recordingNumbers = getSelectedRecordingNumbers();
+                  if (recordingNumbers.length > 0) {
+                    setIsPushing(true);
+                    pushToAirtableMutation.mutate(recordingNumbers);
+                  }
+                }}
+                disabled={isPushing}
+                className="bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+              >
+                {isPushing ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin mr-2"></i>
+                    Pushing...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-cloud-upload-alt mr-2"></i>
+                    Push to Airtable
+                  </>
+                )}
+              </Button>
+              <Button
                 variant="destructive"
                 size="sm"
                 onClick={() => setShowBulkDeleteConfirm(true)}
@@ -409,21 +531,19 @@ export default function Liens() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[50px]">
+                <TableHead className="w-10 px-2">
                   <Checkbox
                     checked={filteredLiens && filteredLiens.length > 0 && filteredLiens.every(l => selectedLienIds.has(l.id))}
                     onCheckedChange={toggleSelectAll}
                   />
                 </TableHead>
-                <TableHead className="w-[140px]">Recording #</TableHead>
-                <TableHead className="w-[100px]">Record Date</TableHead>
-                <TableHead className="w-[100px]">Scraped</TableHead>
-                <TableHead className="w-[180px]">Debtor Name</TableHead>
-                <TableHead className="w-[180px]">Creditor Name</TableHead>
-                <TableHead className="text-right w-[100px]">Amount</TableHead>
-                <TableHead className="w-[100px]">Status</TableHead>
-                <TableHead className="w-[80px]">PDF</TableHead>
-                <TableHead className="w-[50px]"></TableHead>
+                <TableHead className="px-2">Recording #</TableHead>
+                <TableHead className="px-2">Record Date</TableHead>
+                <TableHead className="px-2">Scraped (ET)</TableHead>
+                <TableHead className="px-2">Status</TableHead>
+                <TableHead className="px-2">PDF</TableHead>
+                <TableHead className="px-2">PDF URL</TableHead>
+                <TableHead className="w-10 px-2"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -450,19 +570,10 @@ export default function Liens() {
                         }}
                       />
                     </TableCell>
-                    <TableCell className="font-mono text-sm">{lien.recordingNumber}</TableCell>
-                    <TableCell className="text-slate-600">{formatDate(lien.recordDate)}</TableCell>
-                    <TableCell className="text-slate-500 text-sm">
-                      {lien.createdAt ? formatDate(lien.createdAt) : '-'}
-                    </TableCell>
-                    <TableCell className="max-w-[180px]" title={lien.debtorName}>
-                      {truncate(lien.debtorName, 25)}
-                    </TableCell>
-                    <TableCell className="max-w-[180px]" title={lien.creditorName || ''}>
-                      {truncate(lien.creditorName, 25)}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(lien.amount)}
+                    <TableCell className="font-mono text-sm whitespace-nowrap">{lien.recordingNumber}</TableCell>
+                    <TableCell className="text-slate-600 whitespace-nowrap">{formatDate(lien.recordDate)}</TableCell>
+                    <TableCell className="text-slate-500 text-sm whitespace-nowrap">
+                      {lien.createdAt ? formatDateTime(lien.createdAt) : '-'}
                     </TableCell>
                     <TableCell>{getStatusBadge(lien.status)}</TableCell>
                     <TableCell>
@@ -482,6 +593,26 @@ export default function Liens() {
                       )}
                     </TableCell>
                     <TableCell>
+                      {(() => {
+                        const url = lien.pdfUrl || lien.documentUrl;
+                        if (!url) return <span className="text-slate-400">-</span>;
+                        const isLocalhost = url.includes('localhost');
+                        const isReplit = url.includes('replit.dev');
+                        // Show domain indicator + truncated URL
+                        const domainLabel = isLocalhost ? 'localhost:5000' : (isReplit ? 'replit.dev' : 'unknown');
+                        const pdfIdMatch = url.match(/\/api\/pdf\/([a-f0-9-]+)/);
+                        const pdfId = pdfIdMatch ? pdfIdMatch[1].slice(0, 8) + '...' : '';
+                        return (
+                          <div className="text-xs" title={url}>
+                            <span className={isLocalhost ? 'text-red-600 font-medium' : 'text-green-600'}>
+                              {domainLabel}
+                            </span>
+                            {pdfId && <span className="text-slate-400 ml-1">/api/pdf/{pdfId}</span>}
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
                       <Button variant="ghost" size="sm">
                         <i className="fas fa-chevron-right text-slate-400"></i>
                       </Button>
@@ -490,7 +621,7 @@ export default function Liens() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-center py-12">
+                  <TableCell colSpan={8} className="text-center py-12">
                     <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
                       <i className="fas fa-file-alt text-slate-400 text-xl"></i>
                     </div>

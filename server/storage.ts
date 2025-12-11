@@ -37,6 +37,7 @@ export interface IStorage {
   createLien(lien: InsertLien): Promise<Lien>;
   updateLienStatus(recordingNumber: string, status: string): Promise<void>;
   updateLienAirtableId(recordingNumber: string, airtableRecordId: string): Promise<void>;
+  updateLienByRecordingNumber(recordingNumber: string, updates: Partial<Lien>): Promise<void>;
   deleteLien(id: string): Promise<boolean>;
   deleteLiensByRecordingNumbers(recordingNumbers: string[]): Promise<number>;
   getRecentLiens(limit: number): Promise<Lien[]>;

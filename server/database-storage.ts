@@ -337,6 +337,12 @@ export class DatabaseStorage implements IStorage {
       .where(eq(liens.recordingNumber, recordingNumber));
   }
 
+  async updateLienByRecordingNumber(recordingNumber: string, updates: Partial<Lien>): Promise<void> {
+    await db.update(liens)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(liens.recordingNumber, recordingNumber));
+  }
+
   async deleteLien(id: string): Promise<boolean> {
     return await retryDatabaseOperation(async () => {
       const result = await db.delete(liens).where(eq(liens.id, id)).returning();
