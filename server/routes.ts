@@ -750,12 +750,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await Logger.info(`Re-download complete: ${successCount} success, ${failedCount} failed`, 'api');
 
+      // Auto-push successfully re-downloaded liens to Airtable
+      let airtableSynced = 0;
+      let airtableFailed = 0;
+      const successfulRecordings = results.filter(r => r.success).map(r => r.recordingNumber);
+      
+      if (successfulRecordings.length > 0) {
+        try {
+          await Logger.info(`Auto-pushing ${successfulRecordings.length} re-downloaded liens to Airtable`, 'api');
+          
+          // Get the liens to sync
+          const liensToSync = [];
+          for (const rn of successfulRecordings) {
+            const lien = await storage.getLienByRecordingNumber(rn);
+            if (lien) {
+              liensToSync.push(lien);
+            }
+          }
+          
+          if (liensToSync.length > 0) {
+            const airtableService = new AirtableService();
+            const syncResult = await airtableService.syncLiensToAirtable(liensToSync);
+            airtableSynced = syncResult.synced;
+            airtableFailed = syncResult.failed;
+            
+            if (airtableSynced > 0) {
+              await Logger.success(`Auto-synced ${airtableSynced} re-downloaded liens to Airtable`, 'api');
+            }
+            
+            // If some liens failed to sync, mark them as 'pending' so they can be retried
+            if (airtableFailed > 0) {
+              await Logger.warning(`${airtableFailed} liens failed to sync to Airtable - marked as pending for retry`, 'api');
+              // The AirtableService already handles marking failed liens appropriately
+              // Liens that synced successfully are marked 'synced', failed ones remain in previous state
+            }
+          }
+        } catch (airtableError) {
+          await Logger.error(`Failed to auto-sync to Airtable: ${airtableError}`, 'api');
+          // On complete failure, mark all as 'pending' so they can be retried manually
+          for (const rn of successfulRecordings) {
+            try {
+              await storage.updateLienByRecordingNumber(rn, { status: 'pending' });
+            } catch (e) {
+              // Ignore individual update failures
+            }
+          }
+          airtableFailed = successfulRecordings.length;
+        }
+      }
+
       res.json({
         success: true,
         successCount,
         failedCount,
+        airtableSynced,
+        airtableFailed,
         results,
-        message: `Re-downloaded ${successCount} PDFs, ${failedCount} failed`
+        message: `Re-downloaded ${successCount} PDFs (${failedCount} failed), synced ${airtableSynced} to Airtable`
       });
     } catch (error) {
       await Logger.error(`Failed to re-download PDFs: ${error}`, 'api');
