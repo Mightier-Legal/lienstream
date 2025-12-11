@@ -32,8 +32,11 @@ export async function getPublicBaseUrl(): Promise<string> {
     return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   }
 
-  // Fallback for local development only
-  return 'http://localhost:5000';
+  // NEVER use localhost - throw error if no valid domain is configured
+  throw new Error(
+    'No valid public URL configured. Set PUBLIC_URL in app settings, ' +
+    'or ensure REPLIT_DEV_DOMAIN or REPLIT_DOMAINS environment variable is available.'
+  );
 }
 
 /**
