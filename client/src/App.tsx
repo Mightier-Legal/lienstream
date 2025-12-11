@@ -13,6 +13,7 @@ import Runs from "@/pages/runs";
 import Settings from "@/pages/settings";
 import ScheduleSettings from "@/pages/schedule-settings";
 import SecretsSettings from "@/pages/secrets-settings";
+import IntegrationsSettings from "@/pages/integrations-settings";
 import NotFound from "@/pages/not-found";
 import { Login } from "@/pages/Login";
 import { useAuth } from "@/hooks/useAuth";
@@ -51,6 +52,7 @@ function AuthenticatedApp() {
         <Route path="/settings" component={Settings} />
         <Route path="/settings/schedule" component={ScheduleSettings} />
         <Route path="/settings/secrets" component={SecretsSettings} />
+        <Route path="/settings/integrations" component={IntegrationsSettings} />
         <Route component={NotFound} />
       </Switch>
     </div>

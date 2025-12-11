@@ -1,6 +1,7 @@
 import * as cron from 'node-cron';
 import { AirtableService } from './airtable';
 import { Logger } from './logger';
+import { slackService } from './slack';
 import { createScraper, BaseScraper, ScrapedLien } from './scrapers';
 import { storage } from '../storage';
 
@@ -448,6 +449,8 @@ export class SchedulerService {
       }
 
       // Only sync to Airtable if we have liens with PDFs
+      let syncedCount = 0;
+      let failedCount = 0;
       if (liensWithPDFs.length > 0) {
         await Logger.info(`${liensWithPDFs.length} liens have PDFs - proceeding with Airtable sync`, 'scheduler');
 
@@ -460,8 +463,10 @@ export class SchedulerService {
           pdfUrl: lien.documentUrl, // Ensure pdfUrl is set for Airtable service
           status: 'pending'
         }));
-        
-        await this.airtableService.syncLiensToAirtable(liensForAirtable);
+
+        const syncResult = await this.airtableService.syncLiensToAirtable(liensForAirtable);
+        syncedCount = syncResult.synced;
+        failedCount = syncResult.failed;
       }
 
       // Step 5: Update automation run status
@@ -482,7 +487,16 @@ export class SchedulerService {
         }
       }
 
-      // TODO: Send Slack notification
+      // Send Slack notification
+      const skippedCount = totalLiensFound - liensWithPDFs.length;
+      await slackService.sendSyncNotification({
+        totalLiens: totalLiensFound,
+        syncedCount,
+        failedCount,
+        skippedCount: skippedCount > 0 ? skippedCount : undefined,
+        triggeredBy: 'scheduled'
+      });
+
       // TODO: Generate mailers for liens with addresses
 
     } catch (error) {

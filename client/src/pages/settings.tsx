@@ -28,7 +28,6 @@ const settingsCards: SettingsCard[] = [
     description: "Connect to Slack, webhooks, and other external services",
     icon: <Webhook className="h-6 w-6" />,
     href: "/settings/integrations",
-    badge: "Coming Soon",
   },
 ];
 

@@ -6,6 +6,7 @@ import { SchedulerService } from "./services/scheduler";
 import { Logger } from "./services/logger";
 import { pdfStorage } from "./services/pdf-storage";
 import { AirtableService } from "./services/airtable";
+import { slackService } from "./services/slack";
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -596,8 +597,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Sync all liens - the airtableService handles batching and status updates internally
       // It will only mark liens as 'synced' when it gets Airtable record IDs back
+      const startTime = Date.now();
       try {
         const syncResult = await airtableService.syncLiensToAirtable(liensForAirtable);
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 
         await storage.createSystemLog({
           level: "info",
@@ -606,6 +609,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         console.log(`[SYNC-ALL] Completed: ${syncResult.synced} synced, ${syncResult.failed} failed`);
+
+        // Send Slack notification
+        await slackService.sendSyncNotification({
+          totalLiens: pendingLiens.length,
+          syncedCount: syncResult.synced,
+          failedCount: syncResult.failed,
+          duration: `${duration}s`,
+          triggeredBy: 'manual'
+        });
 
         res.json({
           message: "Bulk sync completed",
@@ -1333,6 +1345,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(setting);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch setting" });
+    }
+  });
+
+  // ============================================
+  // INTEGRATIONS ENDPOINTS
+  // ============================================
+
+  // Get integration status (which integrations are configured)
+  app.get("/api/integrations/status", requireAuth, async (req, res) => {
+    try {
+      const slackConfigured = await slackService.isConfigured();
+
+      res.json({
+        slack: {
+          configured: slackConfigured
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch integration status" });
+    }
+  });
+
+  // Test Slack webhook
+  app.post("/api/integrations/slack/test", requireAuth, async (req, res) => {
+    try {
+      const { key } = req.body; // Optional: specific webhook key to test
+      const result = await slackService.sendTestMessage(key);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to send test message"
+      });
     }
   });
 
