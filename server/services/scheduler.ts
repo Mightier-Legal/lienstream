@@ -349,71 +349,115 @@ export class SchedulerService {
       }
 
       // Step 3: Get all scraped liens and check for PDF failures
-      let allLiens: any[] = [];
+      // Check BOTH in-memory liens (newly scraped) AND database liens (pending status with PDFs)
+      let allLiensFromScrapers: any[] = [];
       let liensWithPDFs: any[] = [];
       let failedLiens: any[] = [];
-      
+
+      // Collect liens from scraper memory (newly processed this run)
       for (const scraper of allScrapers) {
         if (scraper.liens && scraper.liens.length > 0) {
-          allLiens = allLiens.concat(scraper.liens);
+          allLiensFromScrapers = allLiensFromScrapers.concat(scraper.liens);
         }
       }
-      
+
+      await Logger.info(`In-memory liens from scrapers: ${allLiensFromScrapers.length}`, 'scheduler');
+
+      // ALSO check database for pending liens that might have been saved during scraping
+      // This handles the case where duplicates were skipped but liens are in DB
+      const pendingDbLiens = await storage.getLiensByStatus('pending');
+      await Logger.info(`Pending liens in database: ${pendingDbLiens.length}`, 'scheduler');
+
       // Separate liens with successful PDFs from those without
-      for (const lien of allLiens) {
+      // First check in-memory liens
+      for (const lien of allLiensFromScrapers) {
         if (lien.documentUrl && lien.documentUrl.includes('/api/pdf/')) {
-          // Successfully downloaded PDF (local URL)
           liensWithPDFs.push(lien);
         } else {
-          // Failed to download PDF
           failedLiens.push(lien);
           await Logger.warning(`PDF download failed for lien ${lien.recordingNumber}`, 'scheduler');
         }
       }
-      
+
+      // Now check database pending liens (avoid duplicates from in-memory)
+      const inMemoryRecordingNumbers = new Set(allLiensFromScrapers.map((l: any) => l.recordingNumber));
+
+      for (const dbLien of pendingDbLiens) {
+        // Skip if we already have this lien from in-memory
+        if (inMemoryRecordingNumbers.has(dbLien.recordingNumber)) {
+          continue;
+        }
+
+        // Check if this DB lien has a valid PDF URL
+        const pdfUrl = dbLien.pdfUrl || dbLien.documentUrl;
+        if (pdfUrl && pdfUrl.includes('/api/pdf/')) {
+          liensWithPDFs.push({
+            recordingNumber: dbLien.recordingNumber,
+            recordingDate: dbLien.recordDate,
+            documentUrl: pdfUrl,
+            countyId: dbLien.countyId,
+            status: dbLien.status
+          });
+        } else {
+          // DB lien without valid PDF
+          failedLiens.push({
+            recordingNumber: dbLien.recordingNumber,
+            documentUrl: pdfUrl || 'none'
+          });
+        }
+      }
+
+      await Logger.info(`Total liens with PDFs: ${liensWithPDFs.length}, Failed: ${failedLiens.length}`, 'scheduler');
+
       totalLiensProcessed = liensWithPDFs.length;
 
       // Step 4: Check if we have 100% success rate before syncing to Airtable
-      if (failedLiens.length > 0) {
-        // HALT: Do not push to Airtable if any PDFs failed
+      // Only halt if there are NEW failed liens (from this scrape run), not existing DB liens
+      const newlyFailedLiens = failedLiens.filter((l: any) =>
+        allLiensFromScrapers.some((m: any) => m.recordingNumber === l.recordingNumber)
+      );
+
+      if (newlyFailedLiens.length > 0) {
+        // HALT: Do not push to Airtable if any NEW PDFs failed
         await Logger.error(
-          `HALTING Airtable sync: ${failedLiens.length} of ${allLiens.length} liens failed PDF download. ` +
-          `Failed liens: ${failedLiens.map((l: any) => l.recordingNumber).join(', ')}`,
+          `HALTING Airtable sync: ${newlyFailedLiens.length} of ${allLiensFromScrapers.length} NEW liens failed PDF download. ` +
+          `Failed liens: ${newlyFailedLiens.map((l: any) => l.recordingNumber).join(', ')}`,
           'scheduler'
         );
-        
+
         // Update automation run with partial failure status
         await storage.updateAutomationRun(runId, {
           status: 'needs_review',
           endTime: new Date(),
           liensFound: totalLiensFound,
           liensProcessed: 0, // 0 because we didn't push to Airtable
-          errorMessage: `${failedLiens.length} liens failed PDF download - Airtable sync halted pending review`
+          errorMessage: `${newlyFailedLiens.length} liens failed PDF download - Airtable sync halted pending review`
         });
-        
+
         // Store failed liens for manual review
-        await storage.setFailedLiens(failedLiens);
-        
+        await storage.setFailedLiens(newlyFailedLiens);
+
         await Logger.warning(
-          `Automation needs review: Found ${allLiens.length} liens, ${liensWithPDFs.length} with PDFs, ` +
-          `${failedLiens.length} without. Airtable sync HALTED. Manual review required.`,
+          `Automation needs review: Found ${allLiensFromScrapers.length} new liens, ${liensWithPDFs.length} total with PDFs, ` +
+          `${newlyFailedLiens.length} newly failed. Airtable sync HALTED. Manual review required.`,
           'scheduler'
         );
-        
+
         // Exit early without pushing to Airtable
         return;
       }
-      
-      // Only sync to Airtable if ALL PDFs were successfully downloaded
+
+      // Only sync to Airtable if we have liens with PDFs
       if (liensWithPDFs.length > 0) {
-        await Logger.info(`All ${liensWithPDFs.length} liens have PDFs - proceeding with Airtable sync`, 'scheduler');
-        
+        await Logger.info(`${liensWithPDFs.length} liens have PDFs - proceeding with Airtable sync`, 'scheduler');
+
         // Transform liens to match Airtable service expectations
         const liensForAirtable = liensWithPDFs.map((lien: any) => ({
           recordingNumber: lien.recordingNumber,
           recordingDate: lien.recordingDate,
           documentUrl: lien.documentUrl,
-          countyId: '1', // Use default county ID for now
+          countyId: lien.countyId || '1',
+          pdfUrl: lien.documentUrl, // Ensure pdfUrl is set for Airtable service
           status: 'pending'
         }));
         

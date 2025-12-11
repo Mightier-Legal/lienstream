@@ -28,7 +28,7 @@ import {
   type InsertScraperPlatform
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, desc, and, gte, sql, or } from "drizzle-orm";
+import { eq, desc, and, gte, sql, or, inArray } from "drizzle-orm";
 import { IStorage } from "./storage";
 import { randomUUID } from "crypto";
 
@@ -335,6 +335,25 @@ export class DatabaseStorage implements IStorage {
     await db.update(liens)
       .set({ airtableRecordId, status: 'synced', updatedAt: new Date() })
       .where(eq(liens.recordingNumber, recordingNumber));
+  }
+
+  async deleteLien(id: string): Promise<boolean> {
+    return await retryDatabaseOperation(async () => {
+      const result = await db.delete(liens).where(eq(liens.id, id)).returning();
+      console.log(`[Storage] Deleted lien ${id}: ${result.length > 0 ? 'success' : 'not found'}`);
+      return result.length > 0;
+    }, `deleteLien(${id})`);
+  }
+
+  async deleteLiensByRecordingNumbers(recordingNumbers: string[]): Promise<number> {
+    return await retryDatabaseOperation(async () => {
+      if (recordingNumbers.length === 0) return 0;
+      const result = await db.delete(liens)
+        .where(inArray(liens.recordingNumber, recordingNumbers))
+        .returning();
+      console.log(`[Storage] Deleted ${result.length} liens by recording numbers`);
+      return result.length;
+    }, `deleteLiensByRecordingNumbers(${recordingNumbers.length} items)`);
   }
 
   async getRecentLiens(limit: number): Promise<Lien[]> {

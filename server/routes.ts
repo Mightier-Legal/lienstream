@@ -498,6 +498,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete a single lien by ID
+  app.delete("/api/liens/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteLien(id);
+
+      if (deleted) {
+        await Logger.info(`Deleted lien ${id}`, 'api');
+        res.json({ success: true, message: "Lien deleted successfully" });
+      } else {
+        res.status(404).json({ error: "Lien not found" });
+      }
+    } catch (error) {
+      await Logger.error(`Failed to delete lien: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to delete lien" });
+    }
+  });
+
+  // Bulk delete liens by recording numbers
+  app.post("/api/liens/bulk-delete", requireAuth, async (req, res) => {
+    try {
+      const { recordingNumbers } = req.body;
+
+      if (!recordingNumbers || !Array.isArray(recordingNumbers) || recordingNumbers.length === 0) {
+        return res.status(400).json({ error: "recordingNumbers array is required" });
+      }
+
+      const deletedCount = await storage.deleteLiensByRecordingNumbers(recordingNumbers);
+      await Logger.info(`Bulk deleted ${deletedCount} liens`, 'api');
+
+      res.json({
+        success: true,
+        deletedCount,
+        message: `Successfully deleted ${deletedCount} liens`
+      });
+    } catch (error) {
+      await Logger.error(`Failed to bulk delete liens: ${error}`, 'api');
+      res.status(500).json({ error: "Failed to bulk delete liens" });
+    }
+  });
+
   // Recent liens with pagination
   app.get("/api/liens/recent", requireAuth, async (req, res) => {
     try {

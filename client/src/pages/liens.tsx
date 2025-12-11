@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Lien, County } from "@shared/schema";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +26,19 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface LiensResponse {
   liens: Lien[];
@@ -45,6 +57,108 @@ export default function Liens() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLien, setSelectedLien] = useState<Lien | null>(null);
   const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
+  const [lienToDelete, setLienToDelete] = useState<Lien | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedLienIds, setSelectedLienIds] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Delete single lien mutation
+  const deleteLienMutation = useMutation({
+    mutationFn: async (lienId: string) => {
+      const response = await fetch(`/api/liens/${lienId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete lien');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      // Refetch liens after deletion
+      queryClient.invalidateQueries({ queryKey: ['/api/liens/recent'] });
+      setSelectedLien(null);
+      setLienToDelete(null);
+      setIsDeleting(false);
+    },
+    onError: (error) => {
+      console.error('Failed to delete lien:', error);
+      setIsDeleting(false);
+    }
+  });
+
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (recordingNumbers: string[]) => {
+      const response = await fetch('/api/liens/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordingNumbers }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to bulk delete liens');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/liens/recent'] });
+      setSelectedLienIds(new Set());
+      setShowBulkDeleteConfirm(false);
+      setIsDeleting(false);
+      console.log(`Successfully deleted ${data.deletedCount} liens`);
+    },
+    onError: (error) => {
+      console.error('Failed to bulk delete liens:', error);
+      setIsDeleting(false);
+    }
+  });
+
+  // Toggle selection of a single lien
+  const toggleLienSelection = (lienId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedLienIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(lienId)) {
+        newSet.delete(lienId);
+      } else {
+        newSet.add(lienId);
+      }
+      return newSet;
+    });
+  };
+
+  // Select/deselect all liens on current page
+  const toggleSelectAll = () => {
+    if (!filteredLiens) return;
+    const allCurrentIds = filteredLiens.map(l => l.id);
+    const allSelected = allCurrentIds.every(id => selectedLienIds.has(id));
+
+    if (allSelected) {
+      // Deselect all
+      setSelectedLienIds(prev => {
+        const newSet = new Set(prev);
+        allCurrentIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+    } else {
+      // Select all
+      setSelectedLienIds(prev => {
+        const newSet = new Set(prev);
+        allCurrentIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
+    }
+  };
+
+  // Get recording numbers for selected liens
+  const getSelectedRecordingNumbers = () => {
+    if (!data?.liens) return [];
+    return data.liens
+      .filter(l => selectedLienIds.has(l.id))
+      .map(l => l.recordingNumber);
+  };
 
   const { data, isLoading } = useQuery<LiensResponse>({
     queryKey: ['/api/liens/recent', page, limit],
@@ -251,11 +365,43 @@ export default function Liens() {
           </Card>
         </div>
 
+        {/* Bulk Actions Bar */}
+        {selectedLienIds.size > 0 && (
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+            <span className="text-sm text-blue-800">
+              <strong>{selectedLienIds.size}</strong> lien{selectedLienIds.size !== 1 ? 's' : ''} selected
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedLienIds(new Set())}
+              >
+                Clear Selection
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+              >
+                <i className="fas fa-trash-alt mr-2"></i>
+                Delete Selected
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Liens Table */}
         <Card>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[50px]">
+                  <Checkbox
+                    checked={filteredLiens && filteredLiens.length > 0 && filteredLiens.every(l => selectedLienIds.has(l.id))}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </TableHead>
                 <TableHead className="w-[140px]">Recording #</TableHead>
                 <TableHead className="w-[100px]">Record Date</TableHead>
                 <TableHead className="w-[100px]">Scraped</TableHead>
@@ -272,9 +418,25 @@ export default function Liens() {
                 filteredLiens.map((lien) => (
                   <TableRow
                     key={lien.id}
-                    className="cursor-pointer hover:bg-slate-50"
+                    className={`cursor-pointer hover:bg-slate-50 ${selectedLienIds.has(lien.id) ? 'bg-blue-50' : ''}`}
                     onClick={() => setSelectedLien(lien)}
                   >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedLienIds.has(lien.id)}
+                        onCheckedChange={() => {
+                          setSelectedLienIds(prev => {
+                            const newSet = new Set(prev);
+                            if (newSet.has(lien.id)) {
+                              newSet.delete(lien.id);
+                            } else {
+                              newSet.add(lien.id);
+                            }
+                            return newSet;
+                          });
+                        }}
+                      />
+                    </TableCell>
                     <TableCell className="font-mono text-sm">{lien.recordingNumber}</TableCell>
                     <TableCell className="text-slate-600">{formatDate(lien.recordDate)}</TableCell>
                     <TableCell className="text-slate-500 text-sm">
@@ -315,7 +477,7 @@ export default function Liens() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center py-12">
+                  <TableCell colSpan={11} className="text-center py-12">
                     <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
                       <i className="fas fa-file-alt text-slate-400 text-xl"></i>
                     </div>
@@ -553,10 +715,109 @@ export default function Liens() {
                 <label className="text-sm font-medium text-slate-500">Lien ID</label>
                 <div className="mt-1 font-mono text-xs text-slate-600">{selectedLien.id}</div>
               </div>
+
+              {/* Delete Button */}
+              <div className="border-t pt-4">
+                <Button
+                  variant="destructive"
+                  onClick={() => setLienToDelete(selectedLien)}
+                  className="w-full"
+                >
+                  <i className="fas fa-trash-alt mr-2"></i>
+                  Delete Lien
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!lienToDelete} onOpenChange={(open) => !open && setLienToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Lien</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete lien <strong>{lienToDelete?.recordingNumber}</strong>?
+              This action cannot be undone and will remove the lien from the database.
+              {lienToDelete?.airtableRecordId && (
+                <span className="block mt-2 text-amber-600">
+                  Note: This lien has been synced to Airtable. You may need to manually delete it from Airtable as well.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (lienToDelete) {
+                  setIsDeleting(true);
+                  deleteLienMutation.mutate(lienToDelete.id);
+                }
+              }}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeleting ? (
+                <>
+                  <i className="fas fa-spinner fa-spin mr-2"></i>
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-trash-alt mr-2"></i>
+                  Delete
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showBulkDeleteConfirm} onOpenChange={(open) => !open && setShowBulkDeleteConfirm(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedLienIds.size} Liens</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{selectedLienIds.size}</strong> selected lien{selectedLienIds.size !== 1 ? 's' : ''}?
+              This action cannot be undone.
+              <div className="mt-3 max-h-40 overflow-y-auto bg-slate-50 rounded p-2 text-xs font-mono">
+                {getSelectedRecordingNumbers().map(rn => (
+                  <div key={rn}>{rn}</div>
+                ))}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const recordingNumbers = getSelectedRecordingNumbers();
+                if (recordingNumbers.length > 0) {
+                  setIsDeleting(true);
+                  bulkDeleteMutation.mutate(recordingNumbers);
+                }
+              }}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeleting ? (
+                <>
+                  <i className="fas fa-spinner fa-spin mr-2"></i>
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-trash-alt mr-2"></i>
+                  Delete {selectedLienIds.size} Liens
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

@@ -10,3 +10,6 @@ vite.config.ts.*
 .env.local
 .env.production
 .env.*.local
+
+# PDF storage - local only, not synced
+stored_pdfs/

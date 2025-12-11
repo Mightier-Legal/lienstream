@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, decimal, boolean, jsonb, index, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, date, integer, decimal, boolean, jsonb, index, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -32,7 +32,7 @@ export const liens = pgTable("liens", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   countyId: varchar("county_id").notNull().references(() => counties.id),
   recordingNumber: text("recording_number").notNull().unique(),
-  recordDate: timestamp("record_date").notNull(),
+  recordDate: date("record_date").notNull(),
   debtorName: text("debtor_name").notNull(),
   debtorAddress: text("debtor_address"),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),

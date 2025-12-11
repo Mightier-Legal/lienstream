@@ -146,7 +146,7 @@ export class MaricopaLegacyScraper extends BaseScraper {
           // Check if this recording number already exists in the database
           const existingLien = await storage.getLienByRecordingNumber(recordingNumber);
           if (existingLien) {
-            await Logger.info(`Skipping ${recordingNumber} - already exists in database`, 'maricopa-legacy');
+            await Logger.warning(`DUPLICATE SKIPPED: ${recordingNumber} already exists in database (recorded: ${existingLien.recordDate}, status: ${existingLien.status})`, 'maricopa-legacy');
             continue;
           }
           // Ensure browser is connected
@@ -464,7 +464,7 @@ export class MaricopaLegacyScraper extends BaseScraper {
       // Take screenshot for debugging
       await page.screenshot({ path: `results-page-${pageNum}.png` });
 
-      // Check for results in iframe
+      // Re-find the frame on EVERY iteration (frames can become stale after navigation)
       const frames = page.frames();
       const resultsIframeSelector = this.getSelector('resultsIframe') || 'GetRecDataRecentPgDn';
       const resultsFrame = frames.find(f =>
@@ -473,6 +473,12 @@ export class MaricopaLegacyScraper extends BaseScraper {
       );
 
       const targetPage = resultsFrame || page;
+
+      if (resultsFrame) {
+        await Logger.info(`Found results frame: ${resultsFrame.url()}`, 'maricopa-legacy');
+      } else {
+        await Logger.info(`No iframe found, using main page`, 'maricopa-legacy');
+      }
 
       // Extract recording numbers
       const pageRecordingNumbers = await targetPage.evaluate((recordingPattern) => {
@@ -508,30 +514,70 @@ export class MaricopaLegacyScraper extends BaseScraper {
       await Logger.info(`Found ${pageRecordingNumbers.length} recording numbers on page ${pageNum}`, 'maricopa-legacy');
       allRecordingNumbers.push(...pageRecordingNumbers);
 
-      // Check for next page
-      hasNextPage = await targetPage.evaluate(() => {
-        const nextLinks = Array.from(document.querySelectorAll('a, input[type="button"], input[type="submit"], button'));
+      // Check for next page button and click it
+      // Use specific selector for Maricopa's Next Page button
+      const nextPageSelector = '#ctl00_ContentPlaceHolder1_btnNextPage';
 
-        for (const link of nextLinks) {
-          const text = (link.textContent || (link as HTMLInputElement).value || '').toLowerCase();
-          if (text.includes('next') && !text.includes('previous')) {
-            if ((link as HTMLInputElement).disabled || link.getAttribute('disabled')) {
-              return false;
-            }
-            (link as HTMLElement).click();
-            return true;
+      try {
+        // Check if Next Page button exists and is not disabled
+        const nextButtonExists = await targetPage.evaluate((selector) => {
+          // Try specific ID first
+          let nextBtn = document.querySelector(selector) as HTMLInputElement;
+
+          // Fallback: look for any input/button with "next" in value/text
+          if (!nextBtn) {
+            const allInputs = Array.from(document.querySelectorAll('input[type="submit"], input[type="button"], button'));
+            nextBtn = allInputs.find(el => {
+              const value = ((el as HTMLInputElement).value || el.textContent || '').toLowerCase();
+              return value.includes('next') && !value.includes('previous');
+            }) as HTMLInputElement;
           }
+
+          if (nextBtn) {
+            // Check if disabled
+            if (nextBtn.disabled || nextBtn.getAttribute('disabled')) {
+              console.log('Next button found but disabled');
+              return { found: true, disabled: true };
+            }
+            console.log('Next button found and enabled, clicking...');
+            nextBtn.click();
+            return { found: true, disabled: false, clicked: true };
+          }
+
+          console.log('No next button found');
+          return { found: false };
+        }, nextPageSelector);
+
+        await Logger.info(`Next page check: ${JSON.stringify(nextButtonExists)}`, 'maricopa-legacy');
+
+        if (nextButtonExists.found && !nextButtonExists.disabled && nextButtonExists.clicked) {
+          // Wait for navigation/page update after clicking
+          await Logger.info(`Clicked Next Page, waiting for content to load...`, 'maricopa-legacy');
+
+          // Wait for the page to update - use multiple strategies
+          try {
+            // Strategy 1: Wait for network to settle
+            await page.waitForNetworkIdle({ timeout: 10000 }).catch(() => {});
+          } catch (e) {
+            // Fallback: just wait
+          }
+
+          // Additional wait to ensure content is loaded
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          pageNum++;
+          hasNextPage = true;
+        } else {
+          hasNextPage = false;
+          await Logger.info(`No more pages - stopping pagination`, 'maricopa-legacy');
         }
-
-        return false;
-      });
-
-      if (hasNextPage) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        pageNum++;
+      } catch (paginationError) {
+        await Logger.warning(`Pagination error: ${paginationError} - stopping pagination`, 'maricopa-legacy');
+        hasNextPage = false;
       }
     }
 
+    await Logger.success(`Collected ${allRecordingNumbers.length} total recording numbers from ${pageNum} page(s)`, 'maricopa-legacy');
     return allRecordingNumbers;
   }
 
