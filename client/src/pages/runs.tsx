@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PageHeader, StatIndicator } from "@/components/page-header";
 
 export default function Runs() {
   const [selectedRun, setSelectedRun] = useState<AutomationRun | null>(null);
@@ -107,13 +108,57 @@ export default function Runs() {
     return true;
   });
 
+  // Build stats for PageHeader
+  const headerStats: StatIndicator[] = [
+    {
+      key: 'showing',
+      label: 'Showing',
+      value: filteredRuns?.length || 0,
+      color: 'slate',
+      tooltip: 'Number of runs matching current filters',
+    },
+    {
+      key: 'completed',
+      label: 'Completed',
+      value: runs?.filter(r => r.status === 'completed').length || 0,
+      color: 'green',
+      tooltip: 'Successfully completed runs',
+      onClick: () => setStatusFilter(statusFilter === 'completed' ? 'all' : 'completed'),
+      active: statusFilter === 'completed',
+    },
+    {
+      key: 'running',
+      label: 'Running',
+      value: runs?.filter(r => r.status === 'running').length || 0,
+      color: 'blue',
+      tooltip: 'Currently running automations',
+      onClick: () => setStatusFilter(statusFilter === 'running' ? 'all' : 'running'),
+      active: statusFilter === 'running',
+    },
+    {
+      key: 'stopped',
+      label: 'Stopped',
+      value: runs?.filter(r => r.status === 'stopped').length || 0,
+      color: 'yellow',
+      tooltip: 'Manually stopped runs',
+      onClick: () => setStatusFilter(statusFilter === 'stopped' ? 'all' : 'stopped'),
+      active: statusFilter === 'stopped',
+    },
+    {
+      key: 'failed',
+      label: 'Failed',
+      value: runs?.filter(r => r.status === 'failed').length || 0,
+      color: 'red',
+      tooltip: 'Runs that failed with errors',
+      onClick: () => setStatusFilter(statusFilter === 'failed' ? 'all' : 'failed'),
+      active: statusFilter === 'failed',
+    },
+  ];
+
   if (isLoading) {
     return (
       <main className="flex-1 overflow-auto bg-slate-50">
-        <header className="bg-white border-b border-slate-200 px-6 py-4">
-          <h2 className="text-2xl font-bold text-slate-800">Run History</h2>
-          <p className="text-slate-500 mt-1">View automation run history and error logs</p>
-        </header>
+        <PageHeader title="Run History" stats={[]} />
         <div className="p-6">
           <div className="animate-pulse space-y-4">
             {[...Array(10)].map((_, i) => (
@@ -127,94 +172,42 @@ export default function Runs() {
 
   return (
     <main className="flex-1 overflow-auto bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800">Run History</h2>
-            <p className="text-slate-500 mt-1">View automation run history and error logs</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-600">Status:</span>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="running">Running</SelectItem>
-                  <SelectItem value="failed">Failed</SelectItem>
-                  <SelectItem value="stopped">Stopped</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-600">Type:</span>
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="manual">Manual</SelectItem>
-                  <SelectItem value="scheduled">Scheduled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-600">Show:</span>
-              <Select value={limit.toString()} onValueChange={(v) => setLimit(parseInt(v))}>
-                <SelectTrigger className="w-20">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="20">20</SelectItem>
-                  <SelectItem value="50">50</SelectItem>
-                  <SelectItem value="100">100</SelectItem>
-                  <SelectItem value="200">200</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+      <PageHeader
+        title="Run History"
+        stats={headerStats}
+      >
+        {/* Type Filter */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Type:</span>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-32 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="manual">Manual</SelectItem>
+              <SelectItem value="scheduled">Scheduled</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-      </header>
+        {/* Limit */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Show:</span>
+          <Select value={limit.toString()} onValueChange={(v) => setLimit(parseInt(v))}>
+            <SelectTrigger className="w-20 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="20">20</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+              <SelectItem value="200">200</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </PageHeader>
 
       <div className="p-6">
-        {/* Summary Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-slate-800">{filteredRuns?.length || 0}</div>
-              <div className="text-sm text-slate-500">Showing</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-green-600">
-                {runs?.filter(r => r.status === 'completed').length || 0}
-              </div>
-              <div className="text-sm text-slate-500">Completed</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-yellow-600">
-                {runs?.filter(r => r.status === 'stopped').length || 0}
-              </div>
-              <div className="text-sm text-slate-500">Stopped</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-blue-600">
-                {runs?.reduce((sum, r) => sum + (r.liensFound || 0), 0) || 0}
-              </div>
-              <div className="text-sm text-slate-500">Total Liens Found</div>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* Runs Table */}
         <Card>
           <Table>

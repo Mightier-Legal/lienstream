@@ -20,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SystemLog } from "@shared/schema";
+import { PageHeader, StatIndicator } from "@/components/page-header";
 
 export default function SystemLogs() {
   // Get today's date in Eastern timezone (not UTC)
@@ -145,87 +146,77 @@ export default function SystemLogs() {
     setTimeTo("");
   };
 
+  // Build stats for PageHeader
+  const stats: StatIndicator[] = [
+    {
+      key: 'info',
+      label: 'Info',
+      value: levelCounts.info,
+      color: 'blue',
+      tooltip: 'Informational log entries',
+      onClick: () => setFilterLevel(filterLevel === 'info' ? 'all' : 'info'),
+      active: filterLevel === 'info',
+    },
+    {
+      key: 'success',
+      label: 'Success',
+      value: levelCounts.success,
+      color: 'green',
+      tooltip: 'Successful operations',
+      onClick: () => setFilterLevel(filterLevel === 'success' ? 'all' : 'success'),
+      active: filterLevel === 'success',
+    },
+    {
+      key: 'warning',
+      label: 'Warning',
+      value: levelCounts.warning,
+      color: 'yellow',
+      tooltip: 'Warning messages',
+      onClick: () => setFilterLevel(filterLevel === 'warning' ? 'all' : 'warning'),
+      active: filterLevel === 'warning',
+    },
+    {
+      key: 'error',
+      label: 'Error',
+      value: levelCounts.error,
+      color: 'red',
+      tooltip: 'Error messages requiring attention',
+      onClick: () => setFilterLevel(filterLevel === 'error' ? 'all' : 'error'),
+      active: filterLevel === 'error',
+    },
+  ];
+
   return (
     <main className="flex-1 overflow-auto bg-slate-50">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold text-slate-800">System Logs</h2>
-            <div className="flex items-center gap-2">
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                max={today}
-                className="w-40 h-8 text-sm"
-              />
-              {selectedDate !== today && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-blue-600 h-8 px-2"
-                  onClick={() => setSelectedDate(today)}
-                >
-                  Today
-                </Button>
-              )}
-            </div>
-            {/* Level counts */}
-            <div className="flex items-center gap-3 text-sm">
-              <button
-                onClick={() => setFilterLevel(filterLevel === 'info' ? 'all' : 'info')}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded ${filterLevel === 'info' ? 'bg-blue-100 ring-1 ring-blue-400' : 'hover:bg-slate-100'}`}
-              >
-                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                <span className="text-slate-600">{levelCounts.info}</span>
-              </button>
-              <button
-                onClick={() => setFilterLevel(filterLevel === 'success' ? 'all' : 'success')}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded ${filterLevel === 'success' ? 'bg-green-100 ring-1 ring-green-400' : 'hover:bg-slate-100'}`}
-              >
-                <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                <span className="text-slate-600">{levelCounts.success}</span>
-              </button>
-              <button
-                onClick={() => setFilterLevel(filterLevel === 'warning' ? 'all' : 'warning')}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded ${filterLevel === 'warning' ? 'bg-yellow-100 ring-1 ring-yellow-400' : 'hover:bg-slate-100'}`}
-              >
-                <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
-                <span className="text-slate-600">{levelCounts.warning}</span>
-              </button>
-              <button
-                onClick={() => setFilterLevel(filterLevel === 'error' ? 'all' : 'error')}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded ${filterLevel === 'error' ? 'bg-red-100 ring-1 ring-red-400' : 'hover:bg-slate-100'}`}
-              >
-                <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                <span className="text-slate-600">{levelCounts.error}</span>
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-500">Show:</span>
-            <Select value={limit.toString()} onValueChange={(v) => { setLimit(parseInt(v)); setPage(1); }}>
-              <SelectTrigger className="w-[70px] h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <i className="fas fa-sync mr-1"></i>
-              Refresh
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleExportCSV}>
-              <i className="fas fa-download mr-1"></i>
-              Export
-            </Button>
-          </div>
+      <PageHeader
+        title="System Logs"
+        datePicker={{
+          type: 'single',
+          value: selectedDate,
+          onChange: (value) => setSelectedDate(value as string),
+          showTodayButton: true,
+          max: today,
+        }}
+        stats={stats}
+        actions={[
+          { label: 'Refresh', icon: 'fas fa-sync', onClick: () => refetch(), variant: 'outline' },
+          { label: 'Export', icon: 'fas fa-download', onClick: handleExportCSV, variant: 'outline' },
+        ]}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-500">Show:</span>
+          <Select value={limit.toString()} onValueChange={(v) => { setLimit(parseInt(v)); setPage(1); }}>
+            <SelectTrigger className="w-[70px] h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-      </header>
+      </PageHeader>
 
       <div className="p-6">
         {/* Filters Bar */}

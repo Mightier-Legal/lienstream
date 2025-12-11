@@ -2,14 +2,9 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { PageHeader, StatIndicator, DateRangeValue } from "@/components/page-header";
 import {
   Sheet,
   SheetContent,
@@ -85,8 +80,7 @@ export default function Operations() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const today = new Date().toISOString().split('T')[0];
-  const [fromDate, setFromDate] = useState(today);
-  const [toDate, setToDate] = useState(today);
+  const [dateRange, setDateRange] = useState<DateRangeValue>({ from: today, to: today });
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [isMarkingStale, setIsMarkingStale] = useState(false);
   const [showDuplicatesSheet, setShowDuplicatesSheet] = useState(false);
@@ -165,7 +159,7 @@ export default function Operations() {
       const response = await fetch('/api/automation/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromDate, toDate })
+        body: JSON.stringify({ fromDate: dateRange.from, toDate: dateRange.to })
       });
 
       if (!response.ok) {
@@ -175,7 +169,7 @@ export default function Operations() {
 
       toast({
         title: "Automation Started",
-        description: `Searching for liens from ${fromDate} to ${toDate}`,
+        description: `Searching for liens from ${dateRange.from} to ${dateRange.to}`,
       });
 
       queryClient.invalidateQueries({ queryKey: ['/api/automation/status'] });
@@ -386,190 +380,82 @@ export default function Operations() {
     });
   };
 
+  // Build stats for PageHeader
+  const headerStats: StatIndicator[] = [
+    {
+      key: 'synced',
+      label: 'Synced',
+      value: getStatusCount('synced'),
+      color: 'green',
+      tooltip: 'Records successfully synced to Airtable with PDF attached',
+    },
+    {
+      key: 'pending',
+      label: 'Pending',
+      value: getStatusCount('pending'),
+      color: 'yellow',
+      tooltip: 'Records scraped but not yet synced to Airtable',
+    },
+    {
+      key: 'stale',
+      label: 'Stale',
+      value: getStatusCount('stale'),
+      color: 'orange',
+      tooltip: 'Records marked as stale (failed to process). Click to view all.',
+      onClick: getStatusCount('stale') > 0 ? () => setShowStaleSheet(true) : undefined,
+    },
+    {
+      key: 'pdf_failed',
+      label: 'PDF Failed',
+      value: getStatusCount('pdf_failed'),
+      color: 'red',
+      tooltip: 'Records where PDF download explicitly failed',
+    },
+    {
+      key: 'mailer_sent',
+      label: 'Mailer Sent',
+      value: getStatusCount('mailer_sent'),
+      color: 'purple',
+      tooltip: 'Records sent through the mailer system',
+    },
+    {
+      key: 'duplicates',
+      label: 'Duplicates',
+      value: duplicates?.count || 0,
+      color: 'blue',
+      tooltip: 'Recording numbers that appear multiple times. Click to view all.',
+      onClick: duplicates?.count ? () => setShowDuplicatesSheet(true) : undefined,
+    },
+  ];
+
   return (
     <main className="flex-1 overflow-auto bg-slate-50">
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-6">
-        <h2 className="text-3xl font-bold text-slate-800 mb-2">Operations</h2>
-        <p className="text-base text-slate-600">
-          Control automation, monitor pipeline status, and manage failed items
-        </p>
-      </header>
+      <PageHeader
+        title="Operations"
+        datePicker={{
+          type: 'range',
+          value: dateRange,
+          onChange: (value) => setDateRange(value as DateRangeValue),
+        }}
+        stats={headerStats}
+        actions={[
+          automationStatus?.isRunning
+            ? {
+                label: 'Stop Automation',
+                icon: 'fas fa-stop-circle',
+                onClick: handleStopAutomation,
+                variant: 'gradient-red' as const,
+              }
+            : {
+                label: 'Start Automation',
+                icon: 'fas fa-bolt',
+                onClick: handleStartAutomation,
+                variant: 'gradient-blue' as const,
+              },
+        ]}
+      />
 
       <div className="p-6 space-y-6">
-        {/* Status Overview */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="bg-white cursor-help hover:shadow-md transition-shadow">
-                <CardContent className="pt-4">
-                  <div className="text-2xl font-bold text-slate-800">{getStatusCount('synced')}</div>
-                  <div className="text-sm text-green-600 flex items-center gap-1">
-                    Synced
-                    <i className="fas fa-info-circle text-xs text-slate-400"></i>
-                  </div>
-                </CardContent>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs">
-              <p>Records successfully synced to Airtable with PDF attached</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="bg-white cursor-help hover:shadow-md transition-shadow">
-                <CardContent className="pt-4">
-                  <div className="text-2xl font-bold text-slate-800">{getStatusCount('pending')}</div>
-                  <div className="text-sm text-yellow-600 flex items-center gap-1">
-                    Pending
-                    <i className="fas fa-info-circle text-xs text-slate-400"></i>
-                  </div>
-                </CardContent>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs">
-              <p>Records scraped but not yet synced to Airtable (includes both recent and stale)</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card
-                className={`bg-white cursor-pointer hover:shadow-md transition-shadow ${getStatusCount('stale') > 0 ? 'border-orange-300' : ''}`}
-                onClick={() => getStatusCount('stale') > 0 && setShowStaleSheet(true)}
-              >
-                <CardContent className="pt-4">
-                  <div className="text-2xl font-bold text-slate-800">{getStatusCount('stale')}</div>
-                  <div className="text-sm text-orange-600 flex items-center gap-1">
-                    Stale
-                    <i className="fas fa-info-circle text-xs text-slate-400"></i>
-                  </div>
-                </CardContent>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs">
-              <p>Records marked as stale (failed to process). Click to view all.</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="bg-white cursor-help hover:shadow-md transition-shadow">
-                <CardContent className="pt-4">
-                  <div className="text-2xl font-bold text-slate-800">{getStatusCount('pdf_failed')}</div>
-                  <div className="text-sm text-red-600 flex items-center gap-1">
-                    PDF Failed
-                    <i className="fas fa-info-circle text-xs text-slate-400"></i>
-                  </div>
-                </CardContent>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs">
-              <p>Records where PDF download explicitly failed</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card className="bg-white cursor-help hover:shadow-md transition-shadow">
-                <CardContent className="pt-4">
-                  <div className="text-2xl font-bold text-slate-800">{getStatusCount('mailer_sent')}</div>
-                  <div className="text-sm text-purple-600 flex items-center gap-1">
-                    Mailer Sent
-                    <i className="fas fa-info-circle text-xs text-slate-400"></i>
-                  </div>
-                </CardContent>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs">
-              <p>Records that have been sent through the mailer system</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Card
-                className={`bg-white cursor-pointer hover:shadow-md transition-shadow ${duplicates?.count ? 'border-blue-300' : ''}`}
-                onClick={() => duplicates?.count && setShowDuplicatesSheet(true)}
-              >
-                <CardContent className="pt-4">
-                  <div className="text-2xl font-bold text-slate-800">{duplicates?.count || 0}</div>
-                  <div className="text-sm text-blue-600 flex items-center gap-1">
-                    Duplicates
-                    <i className="fas fa-info-circle text-xs text-slate-400"></i>
-                  </div>
-                </CardContent>
-              </Card>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs">
-              <p>Recording numbers that appear multiple times in the database. Click to view all.</p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-
-        {/* Automation Controls */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <i className="fas fa-cogs text-blue-600"></i>
-              Automation Controls
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-4 bg-slate-50 rounded-lg p-4 flex-1 min-w-[400px]">
-                <div className="flex items-center gap-2">
-                  <label htmlFor="from-date" className="text-sm font-semibold text-slate-700 whitespace-nowrap">
-                    From:
-                  </label>
-                  <Input
-                    id="from-date"
-                    type="date"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                    max={toDate}
-                    className="w-40 bg-white"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <label htmlFor="to-date" className="text-sm font-semibold text-slate-700 whitespace-nowrap">
-                    To:
-                  </label>
-                  <Input
-                    id="to-date"
-                    type="date"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                    min={fromDate}
-                    className="w-40 bg-white"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                {automationStatus?.isRunning ? (
-                  <Button
-                    onClick={handleStopAutomation}
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    <i className="fas fa-stop mr-2"></i>
-                    Stop Automation
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={handleStartAutomation}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <i className="fas fa-play mr-2"></i>
-                    Start Automation
-                  </Button>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Stale Pending Records */}
         <Card className="border-orange-200 bg-orange-50/30">
           <CardHeader>

@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PageHeader, StatIndicator } from "@/components/page-header";
 
 export default function Counties() {
   const { toast } = useToast();
@@ -283,13 +284,35 @@ export default function Counties() {
     }, null, 2)
   };
 
+  // Build stats for PageHeader
+  const headerStats: StatIndicator[] = [
+    {
+      key: 'total',
+      label: 'Total Counties',
+      value: counties?.length || 0,
+      color: 'slate',
+      tooltip: 'Total configured counties',
+    },
+    {
+      key: 'active',
+      label: 'Active',
+      value: counties?.filter(c => c.isActive).length || 0,
+      color: 'green',
+      tooltip: 'Counties currently enabled for scraping',
+    },
+    {
+      key: 'inactive',
+      label: 'Inactive',
+      value: counties?.filter(c => !c.isActive).length || 0,
+      color: 'yellow',
+      tooltip: 'Counties currently disabled',
+    },
+  ];
+
   if (isLoading) {
     return (
-      <main className="flex-1 overflow-auto">
-        <header className="bg-white border-b border-slate-200 px-6 py-4">
-          <h2 className="text-2xl font-bold text-slate-800">County Management</h2>
-          <p className="text-slate-500 mt-1">Configure county settings for record scraping</p>
-        </header>
+      <main className="flex-1 overflow-auto bg-slate-50">
+        <PageHeader title="Counties" stats={[]} />
         <div className="p-6">
           <div className="animate-pulse space-y-4">
             {[...Array(3)].map((_, i) => (
@@ -302,24 +325,19 @@ export default function Counties() {
   }
 
   return (
-    <main className="flex-1 overflow-auto">
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800">County Management</h2>
-            <p className="text-slate-500 mt-1">Configure and manage county settings</p>
-          </div>
-          <Button 
-            onClick={() => setShowAddForm(!showAddForm)}
-            variant="outline"
-            className={`flex items-center justify-center transition-all duration-200 ${showAddForm ? 'bg-blue-500 text-white border-blue-500' : 'hover:bg-blue-500 hover:text-white hover:border-blue-500 hover:shadow-md'}`}
-            data-testid="button-add-county"
-          >
-            <i className="fas fa-plus mr-2"></i>
-            Add County
-          </Button>
-        </div>
-      </header>
+    <main className="flex-1 overflow-auto bg-slate-50">
+      <PageHeader
+        title="Counties"
+        stats={headerStats}
+        actions={[
+          {
+            label: showAddForm ? 'Cancel' : 'Add County',
+            icon: showAddForm ? 'fas fa-times' : 'fas fa-plus',
+            onClick: () => setShowAddForm(!showAddForm),
+            variant: showAddForm ? 'outline' : 'default',
+          },
+        ]}
+      />
 
       <div className="p-6 space-y-6">
         {/* Add County Form */}

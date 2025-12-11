@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Lien, County } from "@shared/schema";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PageHeader, StatIndicator } from "@/components/page-header";
 import {
   Table,
   TableBody,
@@ -266,10 +267,7 @@ export default function Liens() {
   if (isLoading) {
     return (
       <main className="flex-1 overflow-auto bg-slate-50">
-        <header className="bg-white border-b border-slate-200 px-6 py-4">
-          <h2 className="text-2xl font-bold text-slate-800">Liens</h2>
-          <p className="text-slate-500 mt-1">View and manage all scraped liens</p>
-        </header>
+        <PageHeader title="Liens" stats={[]} />
         <div className="p-6">
           <div className="animate-pulse space-y-4">
             {[...Array(10)].map((_, i) => (
@@ -283,105 +281,103 @@ export default function Liens() {
 
   const pagination = data?.pagination;
 
+  // Build stats for PageHeader
+  const headerStats: StatIndicator[] = [
+    {
+      key: 'total',
+      label: 'Total Liens',
+      value: pagination?.totalCount || 0,
+      color: 'slate',
+      tooltip: 'Total number of liens in the database',
+    },
+    {
+      key: 'synced',
+      label: 'Synced',
+      value: data?.liens.filter(l => l.status === 'synced').length || 0,
+      color: 'green',
+      tooltip: 'Records synced to Airtable',
+      onClick: () => setStatusFilter(statusFilter === 'synced' ? 'all' : 'synced'),
+      active: statusFilter === 'synced',
+    },
+    {
+      key: 'pending',
+      label: 'Pending',
+      value: data?.liens.filter(l => l.status === 'pending').length || 0,
+      color: 'yellow',
+      tooltip: 'Records awaiting processing',
+      onClick: () => setStatusFilter(statusFilter === 'pending' ? 'all' : 'pending'),
+      active: statusFilter === 'pending',
+    },
+    {
+      key: 'mailer_sent',
+      label: 'Mailer Sent',
+      value: data?.liens.filter(l => l.status === 'mailer_sent').length || 0,
+      color: 'purple',
+      tooltip: 'Records sent through the mailer',
+      onClick: () => setStatusFilter(statusFilter === 'mailer_sent' ? 'all' : 'mailer_sent'),
+      active: statusFilter === 'mailer_sent',
+    },
+    {
+      key: 'airtable',
+      label: 'In Airtable',
+      value: data?.liens.filter(l => l.airtableRecordId).length || 0,
+      color: 'blue',
+      tooltip: 'Records with an Airtable record ID',
+    },
+  ];
+
   return (
     <main className="flex-1 overflow-auto bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800">Liens</h2>
-            <p className="text-slate-500 mt-1">View and manage all scraped liens</p>
-          </div>
-          <div className="flex items-center gap-4">
-            {/* Search */}
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Search by name, ID, Airtable..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-64 pl-9"
-              />
-              <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
-            </div>
-            {/* Status Filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-600">Status:</span>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="processing">Processing</SelectItem>
-                  <SelectItem value="synced">Synced</SelectItem>
-                  <SelectItem value="mailer_sent">Mailer Sent</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Per Page */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-600">Show:</span>
-              <Select value={limit.toString()} onValueChange={(v) => { setLimit(parseInt(v)); setPage(1); }}>
-                <SelectTrigger className="w-20">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="10">10</SelectItem>
-                  <SelectItem value="25">25</SelectItem>
-                  <SelectItem value="50">50</SelectItem>
-                  <SelectItem value="100">100</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+      <PageHeader
+        title="Liens"
+        stats={headerStats}
+      >
+        {/* Search */}
+        <div className="relative">
+          <Input
+            type="text"
+            placeholder="Search by name, ID, Airtable..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-64 pl-9 h-8"
+          />
+          <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
         </div>
-      </header>
+        {/* Status Filter */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Status:</span>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-32 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="synced">Synced</SelectItem>
+              <SelectItem value="mailer_sent">Mailer Sent</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {/* Per Page */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Show:</span>
+          <Select value={limit.toString()} onValueChange={(v) => { setLimit(parseInt(v)); setPage(1); }}>
+            <SelectTrigger className="w-20 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </PageHeader>
 
       <div className="p-6">
-        {/* Summary Stats */}
-        <div className="grid grid-cols-5 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-slate-800">{pagination?.totalCount || 0}</div>
-              <div className="text-sm text-slate-500">Total Liens</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-green-600">
-                {data?.liens.filter(l => l.status === 'synced').length || 0}
-              </div>
-              <div className="text-sm text-slate-500">Synced</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-yellow-600">
-                {data?.liens.filter(l => l.status === 'pending').length || 0}
-              </div>
-              <div className="text-sm text-slate-500">Pending</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-purple-600">
-                {data?.liens.filter(l => l.status === 'mailer_sent').length || 0}
-              </div>
-              <div className="text-sm text-slate-500">Mailer Sent</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <div className="text-2xl font-bold text-blue-600">
-                {data?.liens.filter(l => l.airtableRecordId).length || 0}
-              </div>
-              <div className="text-sm text-slate-500">In Airtable</div>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* Bulk Actions Bar */}
         {selectedLienIds.size > 0 && (
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">

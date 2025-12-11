@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { HEADER_HEIGHT } from "@/components/page-header";
 
 interface MenuItem {
   path: string;
@@ -50,47 +51,40 @@ export function Sidebar() {
       collapsed ? "w-20" : "w-64"
     )}>
       {/* Toggle Button */}
-      <Tooltip delayDuration={0}>
-        <TooltipTrigger asChild>
-          <button
-            onClick={handleToggle}
-            className={cn(
-              "absolute -right-3.5 top-8 z-50 w-8 h-8 bg-white border-2 border-slate-200 rounded-full",
-              "flex items-center justify-center shadow-md hover:shadow-lg hover:border-blue-400",
-              "transition-all group hover:bg-blue-50",
-              !hasInteracted && "ring-2 ring-blue-400 ring-offset-2"
-            )}
-            data-testid="button-sidebar-toggle"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <i className={cn(
-              "fa-solid text-sm text-slate-700 group-hover:text-blue-600 transition-all transform group-hover:scale-110",
-              collapsed ? "fa-angle-right" : "fa-angle-left"
-            )}></i>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side={collapsed ? "right" : "left"}>
-          <p className="text-sm">{collapsed ? "Expand sidebar" : "Collapse sidebar"}</p>
-        </TooltipContent>
-      </Tooltip>
+      <button
+        onClick={handleToggle}
+        className={cn(
+          "absolute -right-3.5 top-8 z-50 w-8 h-8 bg-white border-2 border-slate-200 rounded-full",
+          "flex items-center justify-center shadow-md hover:shadow-lg hover:border-blue-400",
+          "transition-all group hover:bg-blue-50",
+          !hasInteracted && "ring-2 ring-blue-400 ring-offset-2"
+        )}
+        data-testid="button-sidebar-toggle"
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        <i className={cn(
+          "fa-solid text-sm text-slate-700 group-hover:text-blue-600 transition-all transform group-hover:scale-110",
+          collapsed ? "fa-angle-right" : "fa-angle-left"
+        )}></i>
+      </button>
 
-      {/* Logo */}
+      {/* Logo - uses shared HEADER_HEIGHT constant to always match PageHeader */}
       <div className={cn(
-        "border-b border-slate-200 transition-all duration-300",
-        collapsed ? "p-4" : "p-6"
+        `border-b border-slate-200 transition-all duration-300 ${HEADER_HEIGHT} flex items-center`,
+        collapsed ? "px-4 justify-center" : "px-6"
       )}>
         <div className={cn(
           "flex items-center",
-          collapsed ? "justify-center" : "space-x-3"
+          collapsed ? "justify-center" : "gap-3"
         )}>
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 flex-shrink-0">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-md shadow-blue-500/25 flex-shrink-0">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </div>
           {!collapsed && (
             <div className="overflow-hidden">
-              <h1 className="text-xl font-bold text-slate-800">LienStream</h1>
+              <h1 className="text-lg font-bold text-slate-800">LienStream</h1>
               <p className="text-xs text-slate-500">Automated Processing</p>
             </div>
           )}
