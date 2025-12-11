@@ -62,6 +62,8 @@ export default function Liens() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedLienIds, setSelectedLienIds] = useState<Set<string>>(new Set());
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [sortField, setSortField] = useState<'createdAt' | 'updatedAt'>('createdAt');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const queryClient = useQueryClient();
 
   // Delete single lien mutation
@@ -186,8 +188,8 @@ export default function Liens() {
 
   // Select/deselect all liens on current page
   const toggleSelectAll = () => {
-    if (!filteredLiens) return;
-    const allCurrentIds = filteredLiens.map(l => l.id);
+    if (!sortedLiens) return;
+    const allCurrentIds = sortedLiens.map(l => l.id);
     const allSelected = allCurrentIds.every(id => selectedLienIds.has(id));
 
     if (allSelected) {
@@ -334,6 +336,44 @@ export default function Liens() {
     }
     return true;
   });
+
+  // Sort filtered liens
+  const sortedLiens = filteredLiens?.slice().sort((a, b) => {
+    const aValue = a[sortField] ? new Date(a[sortField] as string).getTime() : 0;
+    const bValue = b[sortField] ? new Date(b[sortField] as string).getTime() : 0;
+    return sortDirection === 'desc' ? bValue - aValue : aValue - bValue;
+  });
+
+  // Toggle sort for a column
+  const toggleSort = (field: 'createdAt' | 'updatedAt') => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  // Sortable column header component
+  const SortableHeader = ({ field, label }: { field: 'createdAt' | 'updatedAt'; label: string }) => (
+    <button
+      onClick={() => toggleSort(field)}
+      className="flex items-center gap-1 hover:text-slate-900 transition-colors"
+    >
+      {label}
+      <span className="text-xs">
+        {sortField === field ? (
+          sortDirection === 'desc' ? (
+            <i className="fas fa-sort-down"></i>
+          ) : (
+            <i className="fas fa-sort-up"></i>
+          )
+        ) : (
+          <i className="fas fa-sort text-slate-300"></i>
+        )}
+      </span>
+    </button>
+  );
 
   if (isLoading) {
     return (
@@ -533,13 +573,18 @@ export default function Liens() {
               <TableRow>
                 <TableHead className="w-10 px-2">
                   <Checkbox
-                    checked={filteredLiens && filteredLiens.length > 0 && filteredLiens.every(l => selectedLienIds.has(l.id))}
+                    checked={sortedLiens && sortedLiens.length > 0 && sortedLiens.every(l => selectedLienIds.has(l.id))}
                     onCheckedChange={toggleSelectAll}
                   />
                 </TableHead>
                 <TableHead className="px-2">Recording #</TableHead>
                 <TableHead className="px-2">Record Date</TableHead>
-                <TableHead className="px-2">Scraped (ET)</TableHead>
+                <TableHead className="px-2">
+                  <SortableHeader field="createdAt" label="Scraped (ET)" />
+                </TableHead>
+                <TableHead className="px-2">
+                  <SortableHeader field="updatedAt" label="Updated (ET)" />
+                </TableHead>
                 <TableHead className="px-2">Status</TableHead>
                 <TableHead className="px-2">PDF</TableHead>
                 <TableHead className="px-2">PDF URL</TableHead>
@@ -547,8 +592,8 @@ export default function Liens() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredLiens && filteredLiens.length > 0 ? (
-                filteredLiens.map((lien) => (
+              {sortedLiens && sortedLiens.length > 0 ? (
+                sortedLiens.map((lien) => (
                   <TableRow
                     key={lien.id}
                     className={`cursor-pointer hover:bg-slate-50 ${selectedLienIds.has(lien.id) ? 'bg-blue-50' : ''}`}
@@ -574,6 +619,9 @@ export default function Liens() {
                     <TableCell className="text-slate-600 whitespace-nowrap">{formatDate(lien.recordDate)}</TableCell>
                     <TableCell className="text-slate-500 text-sm whitespace-nowrap">
                       {lien.createdAt ? formatDateTime(lien.createdAt) : '-'}
+                    </TableCell>
+                    <TableCell className="text-slate-500 text-sm whitespace-nowrap">
+                      {lien.updatedAt ? formatDateTime(lien.updatedAt) : '-'}
                     </TableCell>
                     <TableCell>{getStatusBadge(lien.status)}</TableCell>
                     <TableCell>
@@ -621,7 +669,7 @@ export default function Liens() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12">
+                  <TableCell colSpan={9} className="text-center py-12">
                     <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
                       <i className="fas fa-file-alt text-slate-400 text-xl"></i>
                     </div>
